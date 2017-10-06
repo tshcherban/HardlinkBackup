@@ -1,0 +1,220 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using HardLinkBackup;
+
+namespace Backuper
+{
+    class Program
+    {
+        private static string _dateFormat;
+        private static readonly ManualResetEvent ResetEvent = new ManualResetEvent(false);
+        private static bool _run = true;
+        private static int _processed;
+        private static int _total;
+        static void Main(string[] args)
+        {
+            //EnumerateLinks();
+
+            Task.Factory.StartNew(DoBackup, TaskCreationOptions.LongRunning).ContinueWith(t => ResetEvent.Set());
+
+            ResetEvent.WaitOne();
+            //DoBackup();
+
+            Console.ReadKey();
+        }
+
+        private static void EnumerateLinks()
+        {
+            var res = Task.Run(() => GetHardLinks(@"F:\0\bkps\2017-10-04-171633"));
+
+            var t = Console.CursorTop;
+            var l = Console.CursorLeft;
+
+            Task.Run(() => UpdateConsole(l, t));
+            ResetEvent.WaitOne();
+            ResetEvent.Reset();
+            _run = false;
+
+            var links = res.Result;
+
+            res = Task.Run(() => GetHardLinks(@"F:\0\bkps\2017-10-04-171709"));
+            Task.Run(() => UpdateConsole(l, t));
+
+            ResetEvent.WaitOne();
+            ResetEvent.Reset();
+            _run = false;
+
+            var links1 = res.Result;
+        }
+
+        private static void DoBackup()
+        {
+            var src = @"F:\0";
+            var dst = @"F:\";
+
+            var files = Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories)
+                .Select(f => new FileInfoEx(f))
+                .ToList();
+
+            _dateFormat = "yyyy-MM-dd-HHmmss";
+
+            var newBkpDate = DateTime.Now;
+            var newBkpName = newBkpDate.ToString(_dateFormat, CultureInfo.InvariantCulture);
+            var prevBkps = BackupInfo.DiscoverBackups(dst).ToList();
+            foreach (var backupInfo in prevBkps)
+            {
+                backupInfo.CheckIntegrity();
+            }
+
+            var currentBkpDir = Path.Combine(dst, newBkpName);
+            var currentBkp = new BackupInfo
+            {
+                AbsolutePath = currentBkpDir,
+                DateTime = newBkpDate,
+                Objects = new List<BackupFileInfo>(files.Count)
+            };
+
+            var prevBackupFiles = prevBkps
+                .SelectMany(b => b.Objects.Select(fll => new {file = fll, backup = b}))
+                .ToList();
+            var tasks = new List<Task>();
+            var copiedCount = 0;
+            var linkedCount = 0;
+
+            foreach (var f in files)
+            {
+                var newFile = f.FileName.Replace(src, currentBkpDir);
+                var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
+
+                var newDir = Path.GetDirectoryName(newFile);
+                if (!Directory.Exists(newDir))
+                    Directory.CreateDirectory(newDir);
+
+                var fileFromPrevBackup =
+                    prevBackupFiles
+                        .FirstOrDefault(oldFile =>
+                            oldFile.file.Length == f.FileInfo.Length &&
+                            oldFile.file.Hash == f.FastHashStr);
+
+                string existingFile;
+                if (fileFromPrevBackup != null)
+                    existingFile = fileFromPrevBackup.backup.AbsolutePath + fileFromPrevBackup.file.Path;
+                else
+                {
+                    existingFile = currentBkp.Objects
+                        .FirstOrDefault(copied =>
+                            copied.Length == f.FileInfo.Length &&
+                            copied.Hash == f.FastHashStr)?.Path;
+                    if (existingFile != null)
+                        existingFile = currentBkp.AbsolutePath + existingFile;
+                }
+
+                if (existingFile != null)
+                {
+                    if (!CreateHardLink(newFile, existingFile, IntPtr.Zero))
+                        throw new InvalidOperationException("Hardlink failed");
+
+                    linkedCount++;
+                    //Console.WriteLine($"Hardlinked\r\n{newFile}\r\nto\r\n{existingFile}");
+                }
+                else
+                {
+                    File.Copy(f.FileName, newFile);
+                    copiedCount++;
+                    tasks.Add(Task.Run(() =>
+                    {
+                        CreatePar(newFile, currentBkp);
+                    }));
+
+                    //Console.WriteLine($"Copied\r\n{newFile}\r\nfrom\r\n{f.FileName}");
+                }
+
+                var fi = new FileInfoEx(newFile);
+                fi.FileInfo.Attributes |= FileAttributes.ReadOnly;
+                currentBkp.Objects.Add(new BackupFileInfo
+                {
+                    Path = newFileRelativeName,
+                    Hash = fi.FastHashStr,
+                    Length = fi.FileInfo.Length
+                });
+            }
+
+            currentBkp.WriteToDisk();
+            Console.WriteLine($"Backup done. {copiedCount} files copied, {linkedCount} files linked");
+            if (tasks.Count > 0)
+            {
+                Console.WriteLine("Waiting par...");
+                Task.WaitAll(tasks.ToArray());
+                Console.WriteLine("Par completed");
+            }
+        }
+
+        private static void CreatePar(string file, BackupInfo currentBkp)
+        {
+            var parFile = currentBkp.AbsolutePath + $"\\.bkp\\par{file.Replace(currentBkp.AbsolutePath, null)}.par";
+            var proc = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "par2j64",
+                    Arguments = $"c /rr10 /rf1 \"{parFile}\" \"{file}\"",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                }
+            };
+            proc.Start();
+            proc.WaitForExit();
+            var outp = proc.StandardOutput.ReadToEnd();
+        }
+
+        private static void UpdateConsole(int l, int t)
+        {
+            _run = true;
+            while (_run)
+            {
+                Console.SetCursorPosition(l, t);
+
+                Console.Write($"Processed {_processed} of {_total}");
+                Thread.Sleep(500);
+            }
+        }
+
+        private static List<(string file, string[] links)> GetHardLinks(string path)
+        {
+            var filess = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).ToList();
+            _total = filess.Count;
+            _processed = 0;
+
+            var links = filess.Select(f =>
+            {
+                var foo = (file:f, links: HardLinkHelper.GetHardLinks(f));
+                _processed++;
+                return foo;
+            }).ToList();
+            ResetEvent.Set();
+            return links;
+        }
+
+        private static void Process_OutputDataReceived(object sender, DataReceivedEventArgs e)
+        {
+            text += e.Data + "\r\n";
+        }
+
+        private static string text;
+
+        [DllImport("Kernel32.dll", CharSet = CharSet.Unicode)]
+        private static extern bool CreateHardLink(
+            string lpFileName,
+            string lpExistingFileName,
+            IntPtr lpSecurityAttributes
+        );
+    }
+}

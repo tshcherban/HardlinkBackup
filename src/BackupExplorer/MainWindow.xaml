@@ -1,0 +1,71 @@
+﻿<Window x:Class="BackupExplorer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:model="clr-namespace:BackupExplorer"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="600" Width="1200"
+        FontFamily="Consolas" FontSize="14">
+    <Window.Resources>
+
+        <HierarchicalDataTemplate DataType="{x:Type model:DirectoryItem}" ItemsSource="{Binding Items}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="1" x:Name="HasBackupsMark"
+                      Width="5" Height="5" Margin="4,0,0,0"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Green"
+                      Visibility="Hidden" />
+                <Grid Grid.Column="1" x:Name="IsBackupMark"
+                      Width="5" Height="5" Margin="4,0,0,0"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Yellow"
+                      Visibility="Hidden" />
+                <TextBlock Grid.Column="0" Text="{Binding Path=Name}" ToolTip="{Binding Path=Path}" />
+            </Grid>
+            <HierarchicalDataTemplate.Triggers>
+                <DataTrigger Binding="{Binding HasBackups}" Value="True">
+                    <Setter TargetName="HasBackupsMark" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsBackup}" Value="True">
+                    <Setter TargetName="IsBackupMark" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </HierarchicalDataTemplate.Triggers>
+        </HierarchicalDataTemplate>
+
+        <DataTemplate DataType="{x:Type model:FileItem}">
+            <TextBlock Text="{Binding Path=Name}" ToolTip="{Binding Path=Path}" />
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Margin="8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="4*" />
+        </Grid.ColumnDefinitions>
+
+        <TreeView x:Name="TreeView1" ItemsSource="{Binding}" />
+
+        <DataGrid Grid.Column="1" x:Name="DataGrid1"
+                  CanUserReorderColumns="False"
+                  CanUserSortColumns="False"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  ItemsSource="{Binding ElementName=TreeView1, Path=SelectedItem.Items}"
+                  MouseDoubleClick="Control_OnMouseDoubleClick">
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Width="40">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Grid Width="35" Height="5" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Name" Binding="{Binding Name}" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</Window>
