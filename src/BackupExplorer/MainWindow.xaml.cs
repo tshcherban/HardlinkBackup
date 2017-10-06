@@ -22,24 +22,38 @@ namespace BackupExplorer
 
             DataContext = _items;
 
-            Task.Run(() =>
-            {
-                foreach (var i in _items.OfType<DirectoryItem>())
-                    DiscoverBackups(i);
-            });
+            Task.Run(() => ProcessFolders());
+        }
+
+        private void ProcessFolders()
+        {
+            foreach (var i in _items.OfType<DirectoryItem>())
+                DiscoverBackups(i);
         }
 
         private static void DiscoverBackups(DirectoryItem dirItem)
         {
             try
             {
+                var hlinks = new List<string>();
                 var bckps = BackupInfo.DiscoverBackups(dirItem.Path).ToList();
                 if (bckps.Count > 0)
                 {
                     dirItem.HasBackups = true;
                     foreach (var bkp in bckps)
                     {
-                        dirItem.Items.OfType<DirectoryItem>().First(i => i.Path == bkp.AbsolutePath).IsBackup = true;
+                        var bkpDirItem = dirItem.Items.OfType<DirectoryItem>().First(i => i.Path == bkp.AbsolutePath);
+                        bkpDirItem.IsBackup = true;
+
+                        object processedFiles;
+                        var files = bkp.Objects;
+                        foreach (var file in files)
+                        {
+                            var fPath = bkp.AbsolutePath + file.Path;
+                            var links = HardLinkHelper.GetHardLinksRooted(fPath);
+                            hlinks.AddRange(links.Where(lnk => !string.Equals(lnk, fPath, StringComparison.OrdinalIgnoreCase)));
+
+                        }
                     }
                 }
                 else
@@ -74,6 +88,23 @@ namespace BackupExplorer
         public DirectoryItem()
         {
             Items = new List<Item>();
+        }
+
+        public IEnumerable<FileItem> GetFiles(bool recursively)
+        {
+            foreach (var i in Items)
+            {
+                switch (i)
+                {
+                    case FileItem fileItem:
+                        yield return fileItem;
+                        break;
+                    case DirectoryItem dirItem when recursively:
+                        foreach (var j in dirItem.GetFiles(true))
+                            yield return j;
+                        break;
+                }
+            }
         }
     }
 
