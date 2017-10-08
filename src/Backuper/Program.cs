@@ -18,13 +18,22 @@ namespace Backuper
         private static bool _run = true;
         private static int _processed;
         private static int _total;
+
         static void Main(string[] args)
         {
+            var sw=new Stopwatch();
+            sw.Start();
+            var file = @"<largefile>";
+            var sha = HashSumHelper.ComputeSha256Unbuffered(file);
+            var sha1 = string.Concat(sha.Select(i => i.ToString("x")));
+            sw.Stop();
+            Console.WriteLine($"{sha1} (read in {sw.Elapsed.TotalMilliseconds:F2} ms)");
+
             //EnumerateLinks();
 
-            Task.Factory.StartNew(DoBackup, TaskCreationOptions.LongRunning).ContinueWith(t => ResetEvent.Set());
+            //Task.Factory.StartNew(DoBackup, TaskCreationOptions.LongRunning).ContinueWith(t => ResetEvent.Set());
 
-            ResetEvent.WaitOne();
+            //ResetEvent.WaitOne();
             //DoBackup();
 
             Console.ReadKey();
@@ -201,11 +210,6 @@ namespace Backuper
             }).ToList();
             ResetEvent.Set();
             return links;
-        }
-
-        private static void Process_OutputDataReceived(object sender, DataReceivedEventArgs e)
-        {
-            text += e.Data + "\r\n";
         }
 
         private static string text;

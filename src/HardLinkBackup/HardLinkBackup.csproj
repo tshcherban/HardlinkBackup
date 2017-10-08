@@ -42,6 +42,7 @@
     <Compile Include="BackupInfo.cs" />
     <Compile Include="FileInfoEx.cs" />
     <Compile Include="HardLinkHelper.cs" />
+    <Compile Include="HashSumHelper.cs" />
     <Compile Include="JsonHelpers.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
