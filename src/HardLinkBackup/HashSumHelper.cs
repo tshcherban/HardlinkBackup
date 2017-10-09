@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -103,71 +104,138 @@ namespace HardLinkBackup
             }
         }
 
-        public static async Task<byte[]> CopyUnbufferedAndComputeHash(string filePath, string destinationPath)
+        public static async Task<byte[]> CopyUnbufferedAndComputeHash(string filePath, string destinationPath, bool allowReadWrite = false)
         {
             const FileOptions fileFlagNoBuffering = (FileOptions)0x20000000;
             const FileOptions fileOptions = fileFlagNoBuffering | FileOptions.SequentialScan;
 
-            const int chunkSize = 32 * 1024 * 1024;
+            const int chunkSize = 256 * 1024 * 1024;
 
             var readBufferSize = chunkSize;
             readBufferSize += ((readBufferSize + 1023) & ~1023) - readBufferSize;
 
-            var buffers = new Queue<Buffer>();
-            const int maxCount = 1;
-
             using (HashAlgorithm sha = SHA1.Create())
             {
-                var buffer = new Buffer {Completed = true};
-                
-                using (var sourceFileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, readBufferSize, fileOptions))
-                using (var destinationFileStream = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, readBufferSize, fileOptions|FileOptions.WriteThrough))
+                using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, readBufferSize, fileOptions))
+                using (var destinationStream = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, readBufferSize, FileOptions.WriteThrough))
                 {
-                    var length = sourceFileStream.Length;
+                    var length = sourceStream.Length;
                     var toRead = length;
 
                     var readSize = Convert.ToInt32(Math.Min(chunkSize, length));
-                    buffer.Data = new byte[readSize];
 
-                    var task = buffer.Process(destinationFileStream, sha).ContinueWith(t =>
+                    const int count = 2;
+                    var buffer = new LightBuffer[count];
+                    for (var i = 0; i < count; ++i)
+                        buffer[i] = new LightBuffer(readSize);
+
+                    void Increment(ref int idx)
                     {
-                        buffer.Completed = false;
+                        idx++;
+                        if (idx > count - 1)
+                            idx = 0;
+                    }
+
+                    var writeEvent = new ManualResetEvent(true);
+                    var readEvent = new ManualResetEvent(true);
+
+                    var cnt = 0;
+
+                    var readTask = Task.Run(() =>
+                    {
+                        var readCount = 0;
+                        var readIdx = 0;
+                        while (toRead > 0)
+                        {
+                            var lightBuffer = buffer[readIdx];
+                            lightBuffer.WriteDone.WaitOne();
+                            lightBuffer.WriteDone.Reset();
+
+                            Console.WriteLine($"R{++readCount} start {++cnt}");
+
+                            if (!allowReadWrite)
+                            {
+                                writeEvent.WaitOne();
+                                writeEvent.Reset();
+                            }
+
+                            lightBuffer.Length = sourceStream.Read(lightBuffer.Data, 0, readSize);
+                            readEvent.Set();
+                            if (lightBuffer.Length == 0)
+                                throw null;
+
+                            toRead -= lightBuffer.Length;
+
+                            Increment(ref readIdx);
+
+                            lightBuffer.IsFinal = toRead == 0;
+
+                            Console.WriteLine($"R{readCount} end {++cnt}");
+
+                            lightBuffer.DataReady.Set();
+                        }
                     });
 
-                    task = Task.CompletedTask;
-                    Buffer active = null;
-                    while (toRead > 0)
+                    var writeTask = Task.Run(async () =>
                     {
-                        if (active == null)
+                        var writeIdx = 0;
+                        var run = true;
+                        var writeCount = 0;
+                        while (run)
                         {
-                            active = buffers.Dequeue();
-                            if (active != null)
+                            var lightBuffer = buffer[writeIdx];
+
+                            lightBuffer.DataReady.WaitOne();
+                            lightBuffer.DataReady.Reset();
+
+                            readEvent.WaitOne();
+                            readEvent.Reset();
+
+                            Console.WriteLine($"W{++writeCount} start {++cnt}");
+
+                            var wrTask = destinationStream.WriteAsync(lightBuffer.Data, 0, lightBuffer.Length);
+                            if (lightBuffer.IsFinal)
                             {
-                                task = active.Process(destinationFileStream, sha);
+                                sha.TransformFinalBlock(lightBuffer.Data, 0, lightBuffer.Length);
+                                run = false;
                             }
+                            else
+                                sha.TransformBlock(lightBuffer.Data, 0, lightBuffer.Length, null, 0);
+                            
+                            await wrTask;
+
+                            Increment(ref writeIdx);
+
+                            Console.WriteLine($"W{writeCount} end {++cnt}");
+
+                            writeEvent.Set();
+                            lightBuffer.WriteDone.Set();
                         }
+                    });
 
-                        if (buffer.Length >= maxCount)
-                        {
-                            await task;
-                        }
-
-
-
-                        buffer.Length = sourceFileStream.Read(buffer.Data, 0, readSize);
-                        if (buffer.Length == 0)
-                            throw new EndOfStreamException("Read beyond end of file EOF");
-
-                        toRead -= buffer.Length;
-
-                        buffer.IsLast = toRead == 0;
-
-                        task = buffer.Process(destinationFileStream, sha);
-                    }
+                    await Task.WhenAll(readTask, writeTask);
 
                     return sha.Hash;
                 }
             }
+        }
+        
+        private class LightBuffer
+        {
+            public LightBuffer(int size)
+            {
+                Data = new byte[size];
+            }
+
+            public byte[] Data { get; }
+
+            public int Length { get; set; }
+
+            public ManualResetEvent DataReady { get; } = new ManualResetEvent(false);
+
+            public ManualResetEvent WriteDone { get; } = new ManualResetEvent(true);
+
+            public bool IsFinal { get; set; }
         }
 
         private class Buffer
@@ -177,25 +245,6 @@ namespace HardLinkBackup
             public int Length { get; set; }
 
             public bool IsLast { get; set; }
-
-            public bool Completed { get; set; }
-
-            public async Task Process(Stream destination, ICryptoTransform algorithm)
-            {
-                if (Completed)
-                    return;
-
-                var writeTask = destination.WriteAsync(Data, 0, Length);
-                var computeTask = Task.Factory.StartNew(() =>
-                {
-                    if (IsLast)
-                        algorithm.TransformFinalBlock(Data, 0, Length);
-                    else
-                        algorithm.TransformBlock(Data, 0, Length, Data, 0);
-                });
-
-                await Task.WhenAll(writeTask, computeTask);
-            }
         }
     }
 }

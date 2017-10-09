@@ -21,14 +21,27 @@ namespace Backuper
 
         static void Main(string[] args)
         {
-            var sw=new Stopwatch();
+            var sw = new Stopwatch();
             sw.Start();
+
+            var f = @"D:\Mia\Trainings\AQA\Adobe Experience Manager 6 Test automation approach QA Club with Valentyn Kvasov and Dmitry Lazarev.mp4";
+            //var f = @"D:\Mia\ITM Program_ Interviewing a candidate (part 1).mp4";
+            var target = @"D:\test1";
+            if (File.Exists(target))
+                File.Delete(target);
+
+            var sha = HashSumHelper.CopyUnbufferedAndComputeHash(f, target, true).Result;
+            var sha1 = string.Concat(sha.Select(i => i.ToString("x")));
+
+            sw.Stop();
+            Console.WriteLine($"{sha1} (read in {sw.Elapsed.TotalMilliseconds:F2} ms)");
+            /*
+            
             var file = @"<largefile>";
             var sha = HashSumHelper.ComputeSha256Unbuffered(file);
             var sha1 = string.Concat(sha.Select(i => i.ToString("x")));
-            sw.Stop();
-            Console.WriteLine($"{sha1} (read in {sw.Elapsed.TotalMilliseconds:F2} ms)");
-
+            
+            */
             //EnumerateLinks();
 
             //Task.Factory.StartNew(DoBackup, TaskCreationOptions.LongRunning).ContinueWith(t => ResetEvent.Set());
@@ -37,30 +50,6 @@ namespace Backuper
             //DoBackup();
 
             Console.ReadKey();
-        }
-
-        private static void EnumerateLinks()
-        {
-            var res = Task.Run(() => GetHardLinks(@"F:\0\bkps\2017-10-04-171633"));
-
-            var t = Console.CursorTop;
-            var l = Console.CursorLeft;
-
-            Task.Run(() => UpdateConsole(l, t));
-            ResetEvent.WaitOne();
-            ResetEvent.Reset();
-            _run = false;
-
-            var links = res.Result;
-
-            res = Task.Run(() => GetHardLinks(@"F:\0\bkps\2017-10-04-171709"));
-            Task.Run(() => UpdateConsole(l, t));
-
-            ResetEvent.WaitOne();
-            ResetEvent.Reset();
-            _run = false;
-
-            var links1 = res.Result;
         }
 
         private static void DoBackup()
@@ -127,7 +116,7 @@ namespace Backuper
 
                 if (existingFile != null)
                 {
-                    if (!CreateHardLink(newFile, existingFile, IntPtr.Zero))
+                    if (!HardLinkHelper.CreateHardLink(newFile, existingFile, IntPtr.Zero))
                         throw new InvalidOperationException("Hardlink failed");
 
                     linkedCount++;

@@ -106,12 +106,12 @@ namespace HardLinkBackup
 
             currentBkp.WriteToDisk();
             Console.WriteLine($"Backup done. {copiedCount} files copied, {linkedCount} files linked");
-            if (tasks.Count > 0)
+            /*if (tasks.Count > 0)
             {
                 Console.WriteLine("Waiting par...");
                 Task.WaitAll(tasks.ToArray());
                 Console.WriteLine("Par completed");
-            }
+            }*/
         }
 
         private void Validate()
