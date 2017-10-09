@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
@@ -10,7 +11,7 @@ namespace HardLinkBackup
 {
     public static class HashSumHelper
     {
-        public static byte[] ComputeSha256Unbuffered(string filePath)
+        public static byte[] ComputeSha1Unbuffered(string filePath)
         {
             const FileOptions fileFlagNoBuffering = (FileOptions)0x20000000;
             const FileOptions fileOptions = fileFlagNoBuffering | FileOptions.SequentialScan;
@@ -23,7 +24,7 @@ namespace HardLinkBackup
             var dataToProcess = new ConcurrentQueue<Buffer>();
             var reusableData = new ConcurrentQueue<Buffer>();
 
-            using (HashAlgorithm sha = SHA256.Create())
+            using (HashAlgorithm sha = SHA1.Create())
             {
                 var allowExit = false;
                 var e = new ManualResetEvent(false);
@@ -102,13 +103,99 @@ namespace HardLinkBackup
             }
         }
 
+        public static async Task<byte[]> CopyUnbufferedAndComputeHash(string filePath, string destinationPath)
+        {
+            const FileOptions fileFlagNoBuffering = (FileOptions)0x20000000;
+            const FileOptions fileOptions = fileFlagNoBuffering | FileOptions.SequentialScan;
+
+            const int chunkSize = 32 * 1024 * 1024;
+
+            var readBufferSize = chunkSize;
+            readBufferSize += ((readBufferSize + 1023) & ~1023) - readBufferSize;
+
+            var buffers = new Queue<Buffer>();
+            const int maxCount = 1;
+
+            using (HashAlgorithm sha = SHA1.Create())
+            {
+                var buffer = new Buffer {Completed = true};
+                
+                using (var sourceFileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, readBufferSize, fileOptions))
+                using (var destinationFileStream = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, readBufferSize, fileOptions|FileOptions.WriteThrough))
+                {
+                    var length = sourceFileStream.Length;
+                    var toRead = length;
+
+                    var readSize = Convert.ToInt32(Math.Min(chunkSize, length));
+                    buffer.Data = new byte[readSize];
+
+                    var task = buffer.Process(destinationFileStream, sha).ContinueWith(t =>
+                    {
+                        buffer.Completed = false;
+                    });
+
+                    task = Task.CompletedTask;
+                    Buffer active = null;
+                    while (toRead > 0)
+                    {
+                        if (active == null)
+                        {
+                            active = buffers.Dequeue();
+                            if (active != null)
+                            {
+                                task = active.Process(destinationFileStream, sha);
+                            }
+                        }
+
+                        if (buffer.Length >= maxCount)
+                        {
+                            await task;
+                        }
+
+
+
+                        buffer.Length = sourceFileStream.Read(buffer.Data, 0, readSize);
+                        if (buffer.Length == 0)
+                            throw new EndOfStreamException("Read beyond end of file EOF");
+
+                        toRead -= buffer.Length;
+
+                        buffer.IsLast = toRead == 0;
+
+                        task = buffer.Process(destinationFileStream, sha);
+                    }
+
+                    return sha.Hash;
+                }
+            }
+        }
+
         private class Buffer
         {
-            public byte[] Data;
+            public byte[] Data { get; set; }
 
-            public int Length;
+            public int Length { get; set; }
 
             public bool IsLast { get; set; }
+
+            public bool Completed { get; set; }
+
+            public async Task Process(Stream destination, ICryptoTransform algorithm)
+            {
+                if (Completed)
+                    return;
+
+                var writeTask = destination.WriteAsync(Data, 0, Length);
+                var computeTask = Task.Factory.StartNew(() =>
+                {
+                    if (IsLast)
+                        algorithm.TransformFinalBlock(Data, 0, Length);
+                    else
+                        algorithm.TransformBlock(Data, 0, Length, Data, 0);
+                });
+
+                await Task.WhenAll(writeTask, computeTask);
+            }
         }
     }
 }

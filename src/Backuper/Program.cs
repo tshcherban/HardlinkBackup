@@ -196,29 +196,10 @@ namespace Backuper
             }
         }
 
-        private static List<(string file, string[] links)> GetHardLinks(string path)
-        {
-            var filess = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).ToList();
-            _total = filess.Count;
-            _processed = 0;
 
-            var links = filess.Select(f =>
-            {
-                var foo = (file:f, links: HardLinkHelper.GetHardLinks(f));
-                _processed++;
-                return foo;
-            }).ToList();
-            ResetEvent.Set();
-            return links;
-        }
 
         private static string text;
 
-        [DllImport("Kernel32.dll", CharSet = CharSet.Unicode)]
-        private static extern bool CreateHardLink(
-            string lpFileName,
-            string lpExistingFileName,
-            IntPtr lpSecurityAttributes
-        );
+        
     }
 }

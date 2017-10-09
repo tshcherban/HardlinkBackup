@@ -47,13 +47,13 @@ namespace BackupExplorer
 
                         object processedFiles;
                         var files = bkp.Objects;
-                        foreach (var file in files)
+                        /*foreach (var file in files)
                         {
                             var fPath = bkp.AbsolutePath + file.Path;
                             var links = HardLinkHelper.GetHardLinksRooted(fPath);
                             hlinks.AddRange(links.Where(lnk => !string.Equals(lnk, fPath, StringComparison.OrdinalIgnoreCase)));
 
-                        }
+                        }*/
                     }
                 }
                 else

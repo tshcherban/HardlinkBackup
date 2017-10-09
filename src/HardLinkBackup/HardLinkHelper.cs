@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace HardLinkBackup
 {
@@ -33,5 +34,8 @@ namespace HardLinkBackup
 
             return str.Split(new[] {Environment.NewLine}, StringSplitOptions.RemoveEmptyEntries);
         }
+
+        [DllImport("Kernel32.dll", CharSet = CharSet.Unicode)]
+        public static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
     }
 }

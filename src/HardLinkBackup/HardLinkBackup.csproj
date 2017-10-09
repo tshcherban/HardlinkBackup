@@ -38,6 +38,7 @@
     <Reference Include="System.Core" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BackupEngine.cs" />
     <Compile Include="BackupFileInfo.cs" />
     <Compile Include="BackupInfo.cs" />
     <Compile Include="FileInfoEx.cs" />
