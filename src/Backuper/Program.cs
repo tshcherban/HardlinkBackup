@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using HardLinkBackup;
@@ -24,13 +23,12 @@ namespace Backuper
             var sw = new Stopwatch();
             sw.Start();
 
-            var f = @"D:\Mia\Trainings\AQA\Adobe Experience Manager 6 Test automation approach QA Club with Valentyn Kvasov and Dmitry Lazarev.mp4";
-            //var f = @"D:\Mia\ITM Program_ Interviewing a candidate (part 1).mp4";
-            var target = @"D:\test1";
+            var source = @"C:\1gb";
+            var target = @"F:\0\test";
             if (File.Exists(target))
                 File.Delete(target);
 
-            var sha = HashSumHelper.CopyUnbufferedAndComputeHash(f, target, true).Result;
+            var sha = HashSumHelper.CopyUnbufferedAndComputeHashAsync(source, target, OnProgress).Result;
             var sha1 = string.Concat(sha.Select(i => i.ToString("x")));
 
             sw.Stop();
@@ -50,6 +48,11 @@ namespace Backuper
             //DoBackup();
 
             Console.ReadKey();
+        }
+
+        private static void OnProgress(double progress)
+        {
+            Console.WriteLine($"Done {progress:F2}%");
         }
 
         private static void DoBackup()

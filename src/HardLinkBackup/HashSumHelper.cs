@@ -104,13 +104,13 @@ namespace HardLinkBackup
             }
         }
 
-        public static async Task<byte[]> CopyUnbufferedAndComputeHash(string filePath, string destinationPath, bool allowReadWrite = false)
+        public static async Task<byte[]> CopyUnbufferedAndComputeHashAsync(string filePath, string destinationPath, Action<double> progressCallback)
         {
             const FileOptions fileFlagNoBuffering = (FileOptions)0x20000000;
             const FileOptions fileOptions = fileFlagNoBuffering | FileOptions.SequentialScan;
 
             const int chunkSize = 256 * 1024 * 1024;
-
+            var locker = new object();
             var readBufferSize = chunkSize;
             readBufferSize += ((readBufferSize + 1023) & ~1023) - readBufferSize;
 
@@ -136,9 +136,6 @@ namespace HardLinkBackup
                             idx = 0;
                     }
 
-                    var writeEvent = new ManualResetEvent(true);
-                    var readEvent = new ManualResetEvent(true);
-
                     var cnt = 0;
 
                     var readTask = Task.Run(() =>
@@ -151,26 +148,23 @@ namespace HardLinkBackup
                             lightBuffer.WriteDone.WaitOne();
                             lightBuffer.WriteDone.Reset();
 
-                            Console.WriteLine($"R{++readCount} start {++cnt}");
-
-                            if (!allowReadWrite)
+                            lock (locker)
                             {
-                                writeEvent.WaitOne();
-                                writeEvent.Reset();
-                            }
+                                //Console.WriteLine($"R{++readCount} start {++cnt}");
 
-                            lightBuffer.Length = sourceStream.Read(lightBuffer.Data, 0, readSize);
-                            readEvent.Set();
-                            if (lightBuffer.Length == 0)
-                                throw null;
+                                lightBuffer.Length = sourceStream.Read(lightBuffer.Data, 0, readSize);
+                                if (lightBuffer.Length == 0)
+                                    throw null;
+
+                                //Console.WriteLine($"R{readCount} end {++cnt}");
+                            }
+                            
 
                             toRead -= lightBuffer.Length;
 
                             Increment(ref readIdx);
 
                             lightBuffer.IsFinal = toRead == 0;
-
-                            Console.WriteLine($"R{readCount} end {++cnt}");
 
                             lightBuffer.DataReady.Set();
                         }
@@ -181,6 +175,7 @@ namespace HardLinkBackup
                         var writeIdx = 0;
                         var run = true;
                         var writeCount = 0;
+                        var writeDone = 0L;
                         while (run)
                         {
                             var lightBuffer = buffer[writeIdx];
@@ -188,27 +183,38 @@ namespace HardLinkBackup
                             lightBuffer.DataReady.WaitOne();
                             lightBuffer.DataReady.Reset();
 
-                            readEvent.WaitOne();
-                            readEvent.Reset();
 
-                            Console.WriteLine($"W{++writeCount} start {++cnt}");
-
-                            var wrTask = destinationStream.WriteAsync(lightBuffer.Data, 0, lightBuffer.Length);
-                            if (lightBuffer.IsFinal)
+                            var hashTask = Task.Factory.StartNew(() =>
                             {
-                                sha.TransformFinalBlock(lightBuffer.Data, 0, lightBuffer.Length);
-                                run = false;
+                                if (lightBuffer.IsFinal)
+                                {
+                                    sha.TransformFinalBlock(lightBuffer.Data, 0, lightBuffer.Length);
+                                    run = false;
+                                }
+                                else
+                                    sha.TransformBlock(lightBuffer.Data, 0, lightBuffer.Length, null, 0);
+                            }, TaskCreationOptions.LongRunning);
+
+                            //lock (locker)
+                            {
+                                //Console.WriteLine($"W{++writeCount} start {++cnt}");
+
+                                /*var wrTask = destinationStream.WriteAsync(lightBuffer.Data, 0, lightBuffer.Length);
+                                await wrTask;*/
+                                destinationStream.Write(lightBuffer.Data, 0, lightBuffer.Length);
+                                //Console.WriteLine($"W{writeCount} end {++cnt}");
                             }
-                            else
-                                sha.TransformBlock(lightBuffer.Data, 0, lightBuffer.Length, null, 0);
-                            
-                            await wrTask;
+
+                            await hashTask;
+
+                            writeDone += lightBuffer.Length;
+
+                            progressCallback?.BeginInvoke((double) writeDone / (double)length * 100d, ar => { }, null);
 
                             Increment(ref writeIdx);
 
-                            Console.WriteLine($"W{writeCount} end {++cnt}");
+                            
 
-                            writeEvent.Set();
                             lightBuffer.WriteDone.Set();
                         }
                     });
