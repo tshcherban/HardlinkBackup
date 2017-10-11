@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HardLinkBackup", "HardLinkB
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackupExplorer", "BackupExplorer\BackupExplorer.csproj", "{75FB92DE-61EF-4C58-A510-1E6CFDB40A51}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CopyPerformancePlot", "WpfApp1\CopyPerformancePlot.csproj", "{1253AB2E-C6C0-44C1-AEEB-3F398E2B1570}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -27,6 +29,10 @@ Global
 		{75FB92DE-61EF-4C58-A510-1E6CFDB40A51}.Debug|x64.Build.0 = Debug|x64
 		{75FB92DE-61EF-4C58-A510-1E6CFDB40A51}.Release|x64.ActiveCfg = Release|x64
 		{75FB92DE-61EF-4C58-A510-1E6CFDB40A51}.Release|x64.Build.0 = Release|x64
+		{1253AB2E-C6C0-44C1-AEEB-3F398E2B1570}.Debug|x64.ActiveCfg = Debug|x64
+		{1253AB2E-C6C0-44C1-AEEB-3F398E2B1570}.Debug|x64.Build.0 = Debug|x64
+		{1253AB2E-C6C0-44C1-AEEB-3F398E2B1570}.Release|x64.ActiveCfg = Release|x64
+		{1253AB2E-C6C0-44C1-AEEB-3F398E2B1570}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

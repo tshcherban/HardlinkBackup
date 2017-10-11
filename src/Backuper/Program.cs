@@ -52,7 +52,7 @@ namespace Backuper
 
         private static void OnProgress(double progress)
         {
-            //Console.WriteLine($"Done {progress:F2}%");
+            Console.WriteLine($"Done {progress:F2}%");
         }
 
         private static void DoBackup()
