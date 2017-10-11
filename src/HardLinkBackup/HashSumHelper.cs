@@ -285,61 +285,64 @@ namespace HardLinkBackup
 
                     if (File.Exists(LogFile))
                         File.Delete(LogFile);
-                    var rLevel = 0;
-                    var wLevel = 0;
-                    var cLevel = 0;
+
                     foreach (var i in perf)
-                    {
-                        if (i.value == "RS")
-                        {
-                            if (rLevel == 1)
-                                throw null;
+                    File.AppendAllText(LogFile, $"{i.time:#00000.00}\t{i.value}\r\n");
+                    /*                    var rLevel = 0;
+                                        var wLevel = 0;
+                                        var cLevel = 0;
+                                        foreach (var i in perf)
+                                        {
+                                            if (i.value == "RS")
+                                            {
+                                                if (rLevel == 1)
+                                                    throw null;
 
-                            rLevel = 1;
-                        }
-                        else if (i.value == "RE")
-                        {
-                            if (rLevel == 0)
-                                throw null;
+                                                rLevel = 1;
+                                            }
+                                            else if (i.value == "RE")
+                                            {
+                                                if (rLevel == 0)
+                                                    throw null;
 
-                            rLevel = 0;
-                        }
-                        else if (i.value == "WS")
-                        {
-                            if (wLevel == 1)
-                                throw null;
+                                                rLevel = 0;
+                                            }
+                                            else if (i.value == "WS")
+                                            {
+                                                if (wLevel == 1)
+                                                    throw null;
 
-                            wLevel = 1;
-                        }
-                        else if (i.value == "WE")
-                        {
-                            if (wLevel == 0)
-                                throw null;
+                                                wLevel = 1;
+                                            }
+                                            else if (i.value == "WE")
+                                            {
+                                                if (wLevel == 0)
+                                                    throw null;
 
-                            wLevel = 0;
-                        }
-                        else if (i.value == "CS")
-                        {
-                            if (cLevel == 1)
-                                throw null;
+                                                wLevel = 0;
+                                            }
+                                            else if (i.value == "CS")
+                                            {
+                                                if (cLevel == 1)
+                                                    throw null;
 
-                            cLevel = 1;
-                        }
-                        else if (i.value == "CE")
-                        {
-                            if (cLevel == 0)
-                                throw null;
+                                                cLevel = 1;
+                                            }
+                                            else if (i.value == "CE")
+                                            {
+                                                if (cLevel == 0)
+                                                    throw null;
 
-                            cLevel = 0;
-                        }
-                        else if (i.value == "D")
-                        {
+                                                cLevel = 0;
+                                            }
+                                            else if (i.value == "D")
+                                            {
 
-                        }
-                        else throw null;
+                                            }
+                                            else throw null;
 
-                        File.AppendAllText(LogFile, $"{i.time:#.00}\t{rLevel}\t{wLevel}\t{cLevel}\t{i.value}\r\n");
-                    }
+                                            File.AppendAllText(LogFile, $"{i.time:#.00}\t{rLevel}\t{wLevel}\t{cLevel}\t{i.value}\r\n");
+                                        }*/
 
 
 
