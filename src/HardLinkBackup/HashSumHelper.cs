@@ -14,7 +14,7 @@ namespace HardLinkBackup
 {
     public static class HashSumHelper
     {
-        private const string LogFile = @"F:\data.txt";
+        private const string LogFile = @"C:\0\log.txt";
 
         public static byte[] ComputeSha1Unbuffered(string filePath)
         {
