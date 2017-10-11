@@ -1,4 +1,6 @@
-﻿using System;
+﻿//#define LOGIO
+
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,9 +14,11 @@ namespace HardLinkBackup
 {
     public static class HashSumHelper
     {
+        private const string LogFile = @"F:\data.txt";
+
         public static byte[] ComputeSha1Unbuffered(string filePath)
         {
-            const FileOptions fileFlagNoBuffering = (FileOptions)0x20000000;
+            const FileOptions fileFlagNoBuffering = (FileOptions) 0x20000000;
             const FileOptions fileOptions = fileFlagNoBuffering | FileOptions.SequentialScan;
 
             const int chunkSize = 32 * 1024 * 1024;
@@ -53,8 +57,9 @@ namespace HardLinkBackup
                         e.Set();
                     }
                 }, TaskCreationOptions.LongRunning);
-            
-                using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, readBufferSize, fileOptions))
+
+                using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                    readBufferSize, fileOptions))
                 {
                     var length = stream.Length;
                     var toRead = length;
@@ -76,7 +81,7 @@ namespace HardLinkBackup
                             var array = new byte[readSize];
                             buffer = new Buffer {Data = array};
                         }
-                    
+
                         Debug.WriteLine($"Reading...{rcount++}");
                         buffer.Length = stream.Read(buffer.Data, 0, readSize);
                         if (buffer.Length == 0)
@@ -104,13 +109,15 @@ namespace HardLinkBackup
             }
         }
 
-        public static async Task<byte[]> CopyUnbufferedAndComputeHashAsync(string filePath, string destinationPath, Action<double> progressCallback)
+        private const int BufferSizeMib = 16;
+
+        public static async Task<byte[]> CopyUnbufferedAndComputeHashAsync(string filePath, string destinationPath, Action<double> progressCallback, bool allowSimultaneousIo)
         {
-            const FileOptions fileFlagNoBuffering = (FileOptions)0x20000000;
+            const FileOptions fileFlagNoBuffering = (FileOptions) 0x20000000;
             const FileOptions fileOptions = fileFlagNoBuffering | FileOptions.SequentialScan;
 
-            const int chunkSize = 256 * 1024 * 1024;
-            var locker = new object();
+            const int chunkSize = BufferSizeMib * 1024 * 1024;
+
             var readBufferSize = chunkSize;
             readBufferSize += ((readBufferSize + 1023) & ~1023) - readBufferSize;
 
@@ -136,11 +143,24 @@ namespace HardLinkBackup
                             idx = 0;
                     }
 
-                    var cnt = 0;
+                    var locker = new object();
 
-                    var readTask = Task.Run(() =>
+                    var sw = new Performance.Stopwatch();
+                    sw.Calibrate();
+                    sw.Reset();
+                    sw.Start();
+                    
+                    var perf = new List<(double time, string value)>();
+
+#if LOGIO
+                    var cnt = 0;
+#endif
+
+                    var readTask = Task.Run(async () =>
                     {
+#if LOGIO
                         var readCount = 0;
+#endif
                         var readIdx = 0;
                         while (toRead > 0)
                         {
@@ -148,17 +168,37 @@ namespace HardLinkBackup
                             lightBuffer.WriteDone.WaitOne();
                             lightBuffer.WriteDone.Reset();
 
-                            lock (locker)
+                            if (allowSimultaneousIo)
                             {
-                                //Console.WriteLine($"R{++readCount} start {++cnt}");
-
+#if LOGIO
+                                Console.WriteLine($"R{++readCount} start {++cnt}");
+#endif
+                                perf.Add((sw.GetSplitTimeInMicroseconds(), "RS"));
                                 lightBuffer.Length = sourceStream.Read(lightBuffer.Data, 0, readSize);
+                                perf.Add((sw.GetSplitTimeInMicroseconds(), "RE"));
                                 if (lightBuffer.Length == 0)
                                     throw null;
 
-                                //Console.WriteLine($"R{readCount} end {++cnt}");
+                                await Task.Delay(1000);
+#if LOGIO
+                                Console.WriteLine($"R{readCount} end {++cnt}");
+#endif
                             }
-                            
+                            else
+                                lock (locker)
+                                {
+#if LOGIO
+                                    Console.WriteLine($"R{++readCount} start {++cnt}");
+#endif
+                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "RS"));
+                                    lightBuffer.Length = sourceStream.Read(lightBuffer.Data, 0, readSize);
+                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "RE"));
+                                    if (lightBuffer.Length == 0)
+                                        throw null;
+#if LOGIO
+                                    Console.WriteLine($"R{readCount} end {++cnt}");
+#endif
+                                }
 
                             toRead -= lightBuffer.Length;
 
@@ -174,7 +214,9 @@ namespace HardLinkBackup
                     {
                         var writeIdx = 0;
                         var run = true;
+#if LOGIO
                         var writeCount = 0;
+#endif
                         var writeDone = 0L;
                         while (run)
                         {
@@ -183,9 +225,9 @@ namespace HardLinkBackup
                             lightBuffer.DataReady.WaitOne();
                             lightBuffer.DataReady.Reset();
 
-
                             var hashTask = Task.Factory.StartNew(() =>
                             {
+                                perf.Add((sw.GetSplitTimeInMicroseconds(), "CS"));
                                 if (lightBuffer.IsFinal)
                                 {
                                     sha.TransformFinalBlock(lightBuffer.Data, 0, lightBuffer.Length);
@@ -193,27 +235,44 @@ namespace HardLinkBackup
                                 }
                                 else
                                     sha.TransformBlock(lightBuffer.Data, 0, lightBuffer.Length, null, 0);
+                                perf.Add((sw.GetSplitTimeInMicroseconds(), "CE"));
                             }, TaskCreationOptions.LongRunning);
 
-                            //lock (locker)
+                            if (allowSimultaneousIo)
                             {
-                                //Console.WriteLine($"W{++writeCount} start {++cnt}");
-
-                                /*var wrTask = destinationStream.WriteAsync(lightBuffer.Data, 0, lightBuffer.Length);
-                                await wrTask;*/
+#if LOGIO
+                                Console.WriteLine($"W{++writeCount} start {++cnt}");
+#endif
+                                perf.Add((sw.GetSplitTimeInMicroseconds(), "WS"));
                                 destinationStream.Write(lightBuffer.Data, 0, lightBuffer.Length);
-                                //Console.WriteLine($"W{writeCount} end {++cnt}");
+                                perf.Add((sw.GetSplitTimeInMicroseconds(), "WE"));
+                                await Task.Delay(1000);
+#if LOGIO
+                                Console.WriteLine($"W{writeCount} end {++cnt}");
+#endif
                             }
+                            else
+                                lock (locker)
+                                {
+#if LOGIO
+                                    Console.WriteLine($"W{++writeCount} start {++cnt}");
+#endif
+                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "WS"));
+                                    destinationStream.Write(lightBuffer.Data, 0, lightBuffer.Length);
+                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "WE"));
+#if LOGIO
+                                    Console.WriteLine($"W{writeCount} end {++cnt}");
+#endif
+                                }
 
                             await hashTask;
 
                             writeDone += lightBuffer.Length;
 
-                            progressCallback?.BeginInvoke((double) writeDone / (double)length * 100d, ar => { }, null);
+                            progressCallback?.BeginInvoke((double) writeDone / length * 100d, ar => { }, null);
 
                             Increment(ref writeIdx);
 
-                            
 
                             lightBuffer.WriteDone.Set();
                         }
@@ -221,11 +280,74 @@ namespace HardLinkBackup
 
                     await Task.WhenAll(readTask, writeTask);
 
+
+                    perf = perf.OrderBy(i => i.time).ToList();
+
+                    if (File.Exists(LogFile))
+                        File.Delete(LogFile);
+                    var rLevel = 0;
+                    var wLevel = 0;
+                    var cLevel = 0;
+                    foreach (var i in perf)
+                    {
+                        if (i.value == "RS")
+                        {
+                            if (rLevel == 1)
+                                throw null;
+
+                            rLevel = 1;
+                        }
+                        else if (i.value == "RE")
+                        {
+                            if (rLevel == 0)
+                                throw null;
+
+                            rLevel = 0;
+                        }
+                        else if (i.value == "WS")
+                        {
+                            if (wLevel == 1)
+                                throw null;
+
+                            wLevel = 1;
+                        }
+                        else if (i.value == "WE")
+                        {
+                            if (wLevel == 0)
+                                throw null;
+
+                            wLevel = 0;
+                        }
+                        else if (i.value == "CS")
+                        {
+                            if (cLevel == 1)
+                                throw null;
+
+                            cLevel = 1;
+                        }
+                        else if (i.value == "CE")
+                        {
+                            if (cLevel == 0)
+                                throw null;
+
+                            cLevel = 0;
+                        }
+                        else if (i.value == "D")
+                        {
+
+                        }
+                        else throw null;
+
+                        File.AppendAllText(LogFile, $"{i.time:#.00}\t{rLevel}\t{wLevel}\t{cLevel}\t{i.value}\r\n");
+                    }
+
+
+
                     return sha.Hash;
                 }
             }
         }
-        
+
         private class LightBuffer
         {
             public LightBuffer(int size)
@@ -252,5 +374,101 @@ namespace HardLinkBackup
 
             public bool IsLast { get; set; }
         }
+    }
+}
+
+namespace Performance
+{
+    using System;
+    using System.Runtime.InteropServices;
+
+    /// <summary>
+    /// 
+    /// </summary>
+    public class Stopwatch
+    {
+        [DllImport("kernel32.dll")]
+        private static extern short QueryPerformanceCounter(ref long x);
+        [DllImport("kernel32.dll")]
+        private static extern short QueryPerformanceFrequency(ref long x);
+
+        private long _startTime;
+        private long _stopTime;
+        private long _clockFrequency;
+        private long _calibrationTime;
+
+        public Stopwatch()
+        {
+            _startTime = 0;
+            _stopTime = 0;
+            _clockFrequency = 0;
+            _calibrationTime = 0;
+            Calibrate();
+        }
+
+        public void Calibrate()
+        {
+            QueryPerformanceFrequency(ref _clockFrequency);
+
+            for (var i = 0; i < 1000; i++)
+            {
+                Start();
+                Stop();
+                _calibrationTime += _stopTime - _startTime;
+            }
+
+            _calibrationTime /= 1000;
+        }
+
+        public void Reset()
+        {
+            _startTime = 0;
+            _stopTime = 0;
+        }
+
+        public void Start()
+        {
+            QueryPerformanceCounter(ref _startTime);
+        }
+
+        public void Stop()
+        {
+            QueryPerformanceCounter(ref _stopTime);
+        }
+
+        public TimeSpan GetElapsedTimeSpan()
+        {
+            return TimeSpan.FromMilliseconds(_GetElapsedTime_ms());
+        }
+
+        public TimeSpan GetSplitTimeSpan()
+        {
+            return TimeSpan.FromMilliseconds(_GetSplitTime_ms());
+        }
+
+        public double GetElapsedTimeInMicroseconds()
+        {
+            return (((_stopTime - _startTime - _calibrationTime) * 1000000.0 / _clockFrequency));
+        }
+
+        public double GetSplitTimeInMicroseconds()
+        {
+            long currentCount = 0;
+            QueryPerformanceCounter(ref currentCount);
+            return (((currentCount - _startTime - _calibrationTime) * 1000000.0 / _clockFrequency));
+        }
+
+        private double _GetSplitTime_ms()
+        {
+            long currentCount = 0;
+            QueryPerformanceCounter(ref currentCount);
+            return (((currentCount - _startTime - _calibrationTime) * 1000000.0 / _clockFrequency) / 1000.0);
+        }
+
+        private double _GetElapsedTime_ms()
+        {
+            return (((_stopTime - _startTime - _calibrationTime) * 1000000.0 / _clockFrequency) / 1000.0);
+        }
+
     }
 }

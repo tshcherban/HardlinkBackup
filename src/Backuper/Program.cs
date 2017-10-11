@@ -28,7 +28,7 @@ namespace Backuper
             if (File.Exists(target))
                 File.Delete(target);
 
-            var sha = HashSumHelper.CopyUnbufferedAndComputeHashAsync(source, target, OnProgress).Result;
+            var sha = HashSumHelper.CopyUnbufferedAndComputeHashAsync(source, target, OnProgress, false).Result;
             var sha1 = string.Concat(sha.Select(i => i.ToString("x")));
 
             sw.Stop();
@@ -52,7 +52,7 @@ namespace Backuper
 
         private static void OnProgress(double progress)
         {
-            Console.WriteLine($"Done {progress:F2}%");
+            //Console.WriteLine($"Done {progress:F2}%");
         }
 
         private static void DoBackup()
