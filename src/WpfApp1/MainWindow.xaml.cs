@@ -48,8 +48,8 @@ namespace WpfApp1
             var wy = cy + h;
             var ry = wy + h;
             var cwwy = ry + h;
-            var lwy = cwwy + h;
-            var lry = lwy + h;
+            var lwy = wy;
+            var lry = ry;
 
             var cMediaColor = Colors.Yellow;
             var cColor = OxyColor.FromRgb(cMediaColor.R, cMediaColor.G, cMediaColor.B);
@@ -167,6 +167,13 @@ namespace WpfApp1
                     series.Items.Add(lrItem);
                     lrItem = null;
                 }
+            }
+
+            const double significantEventThreshold = 4;
+            foreach (var i in series.Items.ToList())
+            {
+                if (i.X1 - i.X0 < significantEventThreshold)
+                    series.Items.Remove(i);
             }
 
             plotModel.ResetAllAxes();
