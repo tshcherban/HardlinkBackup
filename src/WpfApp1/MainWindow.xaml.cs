@@ -14,7 +14,7 @@ namespace WpfApp1
         {
             InitializeComponent();
 
-            var f = File.ReadAllLines(@"F:\data.txt")
+            var f = File.ReadAllLines(@"C:\0\log.txt")
                 .Select(line => line.Split(new[] {"\t"}, StringSplitOptions.RemoveEmptyEntries))
                 .Select(i => new {e = i[1], v = double.Parse(i[0]), n=int.Parse(i[2])})
                 .ToList();

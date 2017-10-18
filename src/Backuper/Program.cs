@@ -23,8 +23,8 @@ namespace Backuper
             var sw = new Stopwatch();
             sw.Start();
 
-            var source = @"C:\1gb";
-            var target = @"F:\0\test";
+            var source = @"C:\0\1gb";
+            var target = @"C:\0\1gbc";
             if (File.Exists(target))
                 File.Delete(target);
 
