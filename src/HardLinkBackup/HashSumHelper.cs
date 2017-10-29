@@ -1,6 +1,4 @@
-﻿//#define LOGIO
-
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -122,240 +120,116 @@ namespace HardLinkBackup
             readBufferSize += ((readBufferSize + 1023) & ~1023) - readBufferSize;
 
             using (HashAlgorithm sha = SHA1.Create())
+            using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, readBufferSize, fileOptions))
+            using (var destinationStream = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, readBufferSize, FileOptions.WriteThrough))
             {
-                using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, readBufferSize, fileOptions))
-                using (var destinationStream = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, readBufferSize, FileOptions.WriteThrough))
+                var length = sourceStream.Length;
+                var toRead = length;
+
+                var readSize = Convert.ToInt32(Math.Min(chunkSize, length));
+
+                var buffer = new LightBuffer[BuffersCount];
+                for (var i = 0; i < BuffersCount; ++i)
+                    buffer[i] = new LightBuffer(readSize) {Number = -1 * i};
+
+                void Increment(ref int idx)
                 {
-                    var length = sourceStream.Length;
-                    var toRead = length;
-
-                    var readSize = Convert.ToInt32(Math.Min(chunkSize, length));
-
-                    var buffer = new LightBuffer[BuffersCount];
-                    for (var i = 0; i < BuffersCount; ++i)
-                        buffer[i] = new LightBuffer(readSize) {Number = -1 * i};
-
-                    void Increment(ref int idx)
-                    {
-                        idx++;
-                        if (idx > BuffersCount - 1)
-                            idx = 0;
-                    }
-
-                    var locker = new object();
-
-                    var sw = new Performance.Stopwatch();
-                    sw.Calibrate();
-                    sw.Reset();
-                    sw.Start();
-                    
-                    var perf = new List<(double time, string value, int number)>();
-
-#if LOGIO
-                    var cnt = 0;
-#endif
-
-                    var readTask = Task.Run(async () =>
-                    {
-#if LOGIO
-                        var readCount = 0;
-#endif
-                        var blockNum = 0;
-                        var readIdx = 0;
-                        while (toRead > 0)
-                        {
-                            var lightBuffer = buffer[readIdx];
-                            lightBuffer.WriteDone.WaitOne();
-                            lightBuffer.WriteDone.Reset();
-                            lightBuffer.Number = ++blockNum;
-
-                            if (allowSimultaneousIo)
-                            {
-#if LOGIO
-                                Console.WriteLine($"R{++readCount} start {++cnt}");
-#endif
-                                perf.Add((sw.GetSplitTimeInMicroseconds(), "RS", lightBuffer.Number));
-                                lightBuffer.Length = sourceStream.Read(lightBuffer.Data, 0, readSize);
-                                perf.Add((sw.GetSplitTimeInMicroseconds(), "RE", lightBuffer.Number));
-                                if (lightBuffer.Length == 0)
-                                    throw null;
-
-                                await Task.Delay(1000);
-#if LOGIO
-                                Console.WriteLine($"R{readCount} end {++cnt}");
-#endif
-                            }
-                            else
-                            {
-                                perf.Add((sw.GetSplitTimeInMicroseconds(), "LRS", lightBuffer.Number));
-                                lock (locker)
-                                {
-                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "LRE", lightBuffer.Number));
-#if LOGIO
-                                    Console.WriteLine($"R{++readCount} start {++cnt}");
-#endif
-                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "RS", lightBuffer.Number));
-                                    lightBuffer.Length = sourceStream.Read(lightBuffer.Data, 0, readSize);
-                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "RE", lightBuffer.Number));
-                                    if (lightBuffer.Length == 0)
-                                        throw null;
-#if LOGIO
-                                    Console.WriteLine($"R{readCount} end {++cnt}");
-#endif
-                                }}
-
-                            toRead -= lightBuffer.Length;
-
-                            lightBuffer.IsFinal = toRead == 0;
-                            lightBuffer.DataReady.Set();
-
-                            Increment(ref readIdx);
-                        }
-                    });
-
-                    var writeTask = Task.Run(async () =>
-                    {
-                        var writeIdx = 0;
-                        var run = true;
-#if LOGIO
-                        var writeCount = 0;
-#endif
-                        var writeDone = 0L;
-                        while (run)
-                        {
-                            var lightBuffer = buffer[writeIdx];
-
-                            perf.Add((sw.GetSplitTimeInMicroseconds(), "CWWS", lightBuffer.Number));
-                            lightBuffer.DataReady.WaitOne();
-                            lightBuffer.DataReady.Reset();
-                            perf.Add((sw.GetSplitTimeInMicroseconds(), "CWWE", lightBuffer.Number));
-
-                            var hashTask = Task.Factory.StartNew(() =>
-                            {
-                                perf.Add((sw.GetSplitTimeInMicroseconds(), "CS", lightBuffer.Number));
-                                if (lightBuffer.IsFinal)
-                                {
-                                    sha.TransformFinalBlock(lightBuffer.Data, 0, lightBuffer.Length);
-                                    run = false;
-                                }
-                                else
-                                    sha.TransformBlock(lightBuffer.Data, 0, lightBuffer.Length, null, 0);
-                                perf.Add((sw.GetSplitTimeInMicroseconds(), "CE", lightBuffer.Number));
-                            }, TaskCreationOptions.LongRunning);
-
-                            if (allowSimultaneousIo)
-                            {
-#if LOGIO
-                                Console.WriteLine($"W{++writeCount} start {++cnt}");
-#endif
-                                perf.Add((sw.GetSplitTimeInMicroseconds(), "WS", lightBuffer.Number));
-                                destinationStream.Write(lightBuffer.Data, 0, lightBuffer.Length);
-                                perf.Add((sw.GetSplitTimeInMicroseconds(), "WE", lightBuffer.Number));
-                                await Task.Delay(1000);
-#if LOGIO
-                                Console.WriteLine($"W{writeCount} end {++cnt}");
-#endif
-                            }
-                            else
-                            {
-                                perf.Add((sw.GetSplitTimeInMicroseconds(), "LWS", lightBuffer.Number));
-                                lock (locker)
-                                {
-                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "LWE", lightBuffer.Number));
-#if LOGIO
-                                    Console.WriteLine($"W{++writeCount} start {++cnt}");
-#endif
-                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "WS", lightBuffer.Number));
-                                    destinationStream.Write(lightBuffer.Data, 0, lightBuffer.Length);
-                                    perf.Add((sw.GetSplitTimeInMicroseconds(), "WE", lightBuffer.Number));
-#if LOGIO
-                                    Console.WriteLine($"W{writeCount} end {++cnt}");
-#endif
-                                }
-                            }
-
-                            await hashTask;
-
-                            writeDone += lightBuffer.Length;
-
-                            lightBuffer.WriteDone.Set();
-
-                            progressCallback?.BeginInvoke((double) writeDone / length * 100d, ar => { }, null);
-
-                            Increment(ref writeIdx);
-                        }
-                    });
-
-                    await Task.WhenAll(readTask, writeTask);
-
-
-                    perf = perf.OrderBy(i => i.time).ToList();
-
-                    if (File.Exists(LogFile))
-                        File.Delete(LogFile);
-
-                    foreach (var i in perf)
-                    File.AppendAllText(LogFile, $"{i.time:#00000.00}\t{i.value}\t{i.number}\r\n");
-                    /*                    var rLevel = 0;
-                                        var wLevel = 0;
-                                        var cLevel = 0;
-                                        foreach (var i in perf)
-                                        {
-                                            if (i.value == "RS")
-                                            {
-                                                if (rLevel == 1)
-                                                    throw null;
-
-                                                rLevel = 1;
-                                            }
-                                            else if (i.value == "RE")
-                                            {
-                                                if (rLevel == 0)
-                                                    throw null;
-
-                                                rLevel = 0;
-                                            }
-                                            else if (i.value == "WS")
-                                            {
-                                                if (wLevel == 1)
-                                                    throw null;
-
-                                                wLevel = 1;
-                                            }
-                                            else if (i.value == "WE")
-                                            {
-                                                if (wLevel == 0)
-                                                    throw null;
-
-                                                wLevel = 0;
-                                            }
-                                            else if (i.value == "CS")
-                                            {
-                                                if (cLevel == 1)
-                                                    throw null;
-
-                                                cLevel = 1;
-                                            }
-                                            else if (i.value == "CE")
-                                            {
-                                                if (cLevel == 0)
-                                                    throw null;
-
-                                                cLevel = 0;
-                                            }
-                                            else if (i.value == "D")
-                                            {
-
-                                            }
-                                            else throw null;
-
-                                            File.AppendAllText(LogFile, $"{i.time:#.00}\t{rLevel}\t{wLevel}\t{cLevel}\t{i.value}\r\n");
-                                        }*/
-
-
-
-                    return sha.Hash;
+                    idx++;
+                    if (idx > BuffersCount - 1)
+                        idx = 0;
                 }
+
+                var locker = new object();
+
+                var readTask = Task.Run(async () =>
+                {
+                    var blockNum = 0;
+                    var readIdx = 0;
+                    while (toRead > 0)
+                    {
+                        var lightBuffer = buffer[readIdx];
+                        lightBuffer.WriteDone.WaitOne();
+                        lightBuffer.WriteDone.Reset();
+                        lightBuffer.Number = ++blockNum;
+
+                        if (allowSimultaneousIo)
+                        {
+                            lightBuffer.Length = await sourceStream.ReadAsync(lightBuffer.Data, 0, readSize);
+                            if (lightBuffer.Length == 0)
+                                throw null;
+                        }
+                        else
+                        {
+                            lock (locker)
+                            {
+                                lightBuffer.Length = sourceStream.Read(lightBuffer.Data, 0, readSize);
+                                if (lightBuffer.Length == 0)
+                                {
+                                    Debugger.Break();
+                                    throw null;
+                                }
+                            }
+                        }
+
+                        toRead -= lightBuffer.Length;
+
+                        lightBuffer.IsFinal = toRead == 0;
+                        lightBuffer.DataReady.Set();
+
+                        Increment(ref readIdx);
+                    }
+                });
+
+                var writeTask = Task.Run(async () =>
+                {
+                    var writeIdx = 0;
+                    var run = true;
+                    var writeDone = 0L;
+                    while (run)
+                    {
+                        var lightBuffer = buffer[writeIdx];
+
+                        lightBuffer.DataReady.WaitOne();
+                        lightBuffer.DataReady.Reset();
+
+                        var hashTask = Task.Factory.StartNew(() =>
+                        {
+                            if (lightBuffer.IsFinal)
+                            {
+                                sha.TransformFinalBlock(lightBuffer.Data, 0, lightBuffer.Length);
+                                run = false;
+                            }
+                            else
+                                sha.TransformBlock(lightBuffer.Data, 0, lightBuffer.Length, null, 0);
+                        }, TaskCreationOptions.LongRunning);
+
+                        if (allowSimultaneousIo)
+                        {
+                            await destinationStream.WriteAsync(lightBuffer.Data, 0, lightBuffer.Length);
+                        }
+                        else
+                        {
+                            lock (locker)
+                            {
+                                destinationStream.Write(lightBuffer.Data, 0, lightBuffer.Length);
+                            }
+                        }
+
+                        await hashTask;
+
+                        writeDone += lightBuffer.Length;
+
+                        lightBuffer.WriteDone.Set();
+
+                        progressCallback?.BeginInvoke((double) writeDone / length * 100d, ar => { }, null);
+
+                        Increment(ref writeIdx);
+                    }
+                });
+
+                await Task.WhenAll(readTask, writeTask);
+
+                return sha.Hash;
             }
         }
 

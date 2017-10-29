@@ -28,7 +28,7 @@ namespace HardLinkBackup
 
         private byte[] HashFast()
         {
-            using (var md5 = MD5.Create())
+            using (var md5 = SHA1.Create())
             {
                 //if (Size <= Constants.MaxSize)
                 return md5.ComputeHash(File.OpenRead(FileName));

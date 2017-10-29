@@ -1,39 +1,57 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace HardLinkBackup
 {
     public class BackupEngine
     {
-        private readonly string _source;
-        private readonly string _destination;
         private const string DateFormat = "yyyy-MM-dd-HHmmss";
 
-        public BackupEngine(string source, string destination)
+        private readonly string _source;
+        private readonly string _destination;
+        private readonly bool _allowSimultaneousReadWrite;
+
+        public event Action<string, int> Log;
+
+        public BackupEngine(string source, string destination, bool allowSimultaneousReadWrite)
         {
-            _source = source;
-            _destination = destination;
+            _source = source.TrimEnd('\\');
+            _destination = destination.TrimEnd('\\');
+            _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
+        }
+
+        private void WriteLog(string msg, int category)
+        {
+            Log?.Invoke(msg, category);
         }
 
         public void DoBackup()
         {
             Validate();
 
+            var category = 0;
+            WriteLog("Enumerating files...", ++category);
+
             var files = Directory.EnumerateFiles(_source, "*", SearchOption.AllDirectories)
                 .Select(f => new FileInfoEx(f))
                 .ToList();
 
+            WriteLog("Discovering backups...", ++category);
+
             var newBkpDate = DateTime.Now;
             var newBkpName = newBkpDate.ToString(DateFormat, CultureInfo.InvariantCulture);
             var prevBkps = BackupInfo.DiscoverBackups(_destination).ToList();
+
+            /*WriteLog("Checking integrity", ++category);
+
             foreach (var backupInfo in prevBkps)
             {
                 backupInfo.CheckIntegrity();
-            }
+            }*/
 
             var currentBkpDir = Path.Combine(_destination, newBkpName);
             var currentBkp = new BackupInfo
@@ -49,12 +67,20 @@ namespace HardLinkBackup
             var copiedCount = 0;
             var linkedCount = 0;
 
+            WriteLog("Copying...", ++category);
+
+            var processed = 1;
             foreach (var f in files)
             {
+                WriteLog($"{f.FileName} ({processed++} of {files.Count})", category);
+
                 var newFile = f.FileName.Replace(_source, currentBkpDir);
                 var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
 
                 var newDir = Path.GetDirectoryName(newFile);
+                if (newDir == null)
+                    throw new InvalidOperationException("Cannot get file's directory");
+
                 if (!Directory.Exists(newDir))
                     Directory.CreateDirectory(newDir);
 
@@ -83,19 +109,16 @@ namespace HardLinkBackup
                         throw new InvalidOperationException("Hardlink failed");
 
                     linkedCount++;
-                    //Console.WriteLine($"Hardlinked\r\n{newFile}\r\nto\r\n{existingFile}");
                 }
                 else
                 {
-                    File.Copy(f.FileName, newFile);
+                    var copiedHash = HashSumHelper.CopyUnbufferedAndComputeHashAsync(f.FileName, newFile, p => { }, _allowSimultaneousReadWrite).Result;
+                    if (f.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
                     copiedCount++;
-                    
-
-                    //Console.WriteLine($"Copied\r\n{newFile}\r\nfrom\r\n{f.FileName}");
                 }
 
                 var fi = new FileInfoEx(newFile);
-                fi.FileInfo.Attributes |= FileAttributes.ReadOnly;
+                fi.FileInfo.Attributes = fi.FileInfo.Attributes | FileAttributes.ReadOnly;
                 currentBkp.Objects.Add(new BackupFileInfo
                 {
                     Path = newFileRelativeName,
@@ -105,13 +128,8 @@ namespace HardLinkBackup
             }
 
             currentBkp.WriteToDisk();
-            Console.WriteLine($"Backup done. {copiedCount} files copied, {linkedCount} files linked");
-            /*if (tasks.Count > 0)
-            {
-                Console.WriteLine("Waiting par...");
-                Task.WaitAll(tasks.ToArray());
-                Console.WriteLine("Par completed");
-            }*/
+
+            WriteLog($"Backup done. {copiedCount} files copied, {linkedCount} files linked", ++category);
         }
 
         private void Validate()
@@ -124,8 +142,25 @@ namespace HardLinkBackup
 
             if (BackupInfo.DiscoverBackups(_source).Any())
                 throw new InvalidOperationException("Source directory contains backups. Backing up backups is not supported");
+        }
 
-            
+        private static void CreatePar(string file, BackupInfo currentBkp)
+        {
+            var parFile = currentBkp.AbsolutePath + $"\\.bkp\\par{file.Replace(currentBkp.AbsolutePath, null)}.par";
+            var proc = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "par2j64",
+                    Arguments = $"c /rr10 /rf1 \"{parFile}\" \"{file}\"",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                }
+            };
+            proc.Start();
+            proc.WaitForExit();
+            var outp = proc.StandardOutput.ReadToEnd();
         }
     }
 }
