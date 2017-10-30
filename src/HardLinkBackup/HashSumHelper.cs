@@ -9,7 +9,7 @@ namespace HardLinkBackup
 {
     public static class HashSumHelper
     {
-        private const int BufferSizeMib = 64;
+        private const int BufferSizeMib = 32;
         private const int BuffersCount = 4;
 
         public static async Task<byte[]> CopyUnbufferedAndComputeHashAsync(string filePath, string destinationPath, Action<double> progressCallback, bool allowSimultaneousIo)
@@ -37,7 +37,11 @@ namespace HardLinkBackup
                 var ioLock = new AsyncLock();
 
                 var readTask = GetReadTask(length, buffer, allowSimultaneousIo, sourceStream, readSize, ioLock);
-                var writeTask = GetWriteTask(buffer, hashAlgorithm, allowSimultaneousIo, ioLock, destinationStream, l => { } /*TODO*/);
+
+                var progress = readSize < length
+                    ? new Action<long>(done => progressCallback?.Invoke(done / (double) length * 100d))
+                    : null;
+                var writeTask = GetWriteTask(buffer, hashAlgorithm, allowSimultaneousIo, ioLock, destinationStream, progress);
 
                 await Task.WhenAll(readTask, writeTask);
 
@@ -97,6 +101,13 @@ namespace HardLinkBackup
         }
         private static async Task GetReadTask(long toRead, LightBuffer[] buffer, bool allowSimultaneousIo, Stream sourceStream, int readSize, AsyncLock locker)
         {
+            if (toRead == 0)
+            {
+                buffer[0].IsFinal = true;
+                buffer[0].DataReady.Set();
+                return;
+            }
+
             var readIdx = 0;
             while (toRead > 0)
             {

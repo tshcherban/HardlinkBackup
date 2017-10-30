@@ -18,6 +18,8 @@ namespace HardLinkBackup
 
         public event Action<string, int> Log;
 
+        public event Action<string> LogExt;
+
         public BackupEngine(string source, string destination, bool allowSimultaneousReadWrite)
         {
             _source = source.TrimEnd('\\');
@@ -28,6 +30,11 @@ namespace HardLinkBackup
         private void WriteLog(string msg, int category)
         {
             Log?.Invoke(msg, category);
+        }
+
+        private void WriteLogExt(string msg)
+        {
+            LogExt?.Invoke(msg);
         }
 
         public async Task DoBackup()
@@ -74,7 +81,7 @@ namespace HardLinkBackup
             var processed = 1;
             foreach (var f in files)
             {
-                WriteLog($"{f.FileName} ({processed++} of {files.Count})", category);
+                WriteLog($"[{processed++} of {files.Count}] {f.FileName.Replace(_source, null)} ", category);
 
                 var newFile = f.FileName.Replace(_source, currentBkpDir);
                 var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
@@ -121,7 +128,7 @@ namespace HardLinkBackup
                 
                 if (needCopy)
                 {
-                    var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsync(f.FileName, newFile, p => { }, _allowSimultaneousReadWrite);
+                    var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsync(f.FileName, newFile, p => { WriteLogExt($"{p} %");}, _allowSimultaneousReadWrite);
                     if (f.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
                         copiedCount++;
                     else

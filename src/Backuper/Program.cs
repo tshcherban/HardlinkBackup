@@ -19,7 +19,7 @@ namespace Backuper
             const string target = @"D:\test\test";
             if (File.Exists(target))
                 File.Delete(target);
-
+            Console.CursorVisible = false;
             var sw = new Stopwatch();
             sw.Start();
 
@@ -35,8 +35,9 @@ namespace Backuper
             return;*/
             try
             {
-                var engine = new BackupEngine(@"F:\Src", @"F:\Dst", true);
+                var engine = new BackupEngine(@"G:\SyncTest\Src", @"D:\Test", true);
                 engine.Log += WriteLog;
+                engine.LogExt += WriteLogExt;
                 Task.Run(async () => await engine.DoBackup()).Wait();
                 sw.Stop();
                 Console.WriteLine($"Done in {sw.Elapsed.TotalMilliseconds:F2} ms");
@@ -47,6 +48,18 @@ namespace Backuper
             }
 
             Console.ReadKey();
+        }
+
+        private static void WriteLogExt(string msg)
+        {
+            var left = Console.CursorLeft;
+
+            Console.Write("".PadRight(Console.BufferWidth - 1 - left));
+            Console.CursorLeft = left;
+
+            Console.Write(msg);
+
+            Console.CursorLeft = left;
         }
 
         private static int? _previousCategory;
