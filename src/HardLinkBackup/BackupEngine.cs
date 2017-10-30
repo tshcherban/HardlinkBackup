@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace HardLinkBackup
 {
@@ -29,7 +30,7 @@ namespace HardLinkBackup
             Log?.Invoke(msg, category);
         }
 
-        public void DoBackup()
+        public async Task DoBackup()
         {
             Validate();
 
@@ -66,6 +67,7 @@ namespace HardLinkBackup
                 .ToList();
             var copiedCount = 0;
             var linkedCount = 0;
+            var linkFailedCount = 0;
 
             WriteLog("Copying...", ++category);
 
@@ -103,18 +105,27 @@ namespace HardLinkBackup
                         existingFile = currentBkp.AbsolutePath + existingFile;
                 }
 
+                var needCopy = true;
                 if (existingFile != null)
                 {
-                    if (!HardLinkHelper.CreateHardLink(newFile, existingFile, IntPtr.Zero))
-                        throw new InvalidOperationException("Hardlink failed");
-
-                    linkedCount++;
+                    if (HardLinkHelper.CreateHardLink(newFile, existingFile, IntPtr.Zero))
+                    {
+                        needCopy = false;
+                        linkedCount++;
+                    }
+                    else
+                    {
+                        linkFailedCount++;
+                    }
                 }
-                else
+                
+                if (needCopy)
                 {
-                    var copiedHash = HashSumHelper.CopyUnbufferedAndComputeHashAsync(f.FileName, newFile, p => { }, _allowSimultaneousReadWrite).Result;
+                    var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsync(f.FileName, newFile, p => { }, _allowSimultaneousReadWrite);
                     if (f.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
-                    copiedCount++;
+                        copiedCount++;
+                    else
+                        Debugger.Break();
                 }
 
                 var fi = new FileInfoEx(newFile);
@@ -129,7 +140,7 @@ namespace HardLinkBackup
 
             currentBkp.WriteToDisk();
 
-            WriteLog($"Backup done. {copiedCount} files copied, {linkedCount} files linked", ++category);
+            WriteLog($"Backup done. {copiedCount} files copied, {linkedCount} files linked, {linkFailedCount} link failed (files copied as duplicates)", ++category);
         }
 
         private void Validate()

@@ -15,25 +15,29 @@ namespace Backuper
     {
         static void Main(string[] args)
         {
-            const string source = @"E:\Work\BackupTest\test_1g";
-            const string target = @"F:\test_1g_dest";
+            const string source = @"C:\0.125gb";
+            const string target = @"D:\test\test";
             if (File.Exists(target))
                 File.Delete(target);
 
             var sw = new Stopwatch();
             sw.Start();
-            /*
-            var sha = HashSumHelper.CopyUnbufferedAndComputeHashAsync(source, target, OnProgress, true).Result;
+
+            /*Debug.WriteLine($"Program {Thread.CurrentThread.ManagedThreadId}");
+
+            var sha = HashSumHelper.CopyUnbufferedAndComputeHashAsync(source, target, d => {}, true).Result;
+            
             var sha1 = string.Concat(sha.Select(i => i.ToString("x")));
 
             sw.Stop();
-            Console.WriteLine($"{sha1} (read in {sw.Elapsed.TotalMilliseconds:F2} ms)");*/
-
+            Console.WriteLine($"{sha1} (done in {sw.Elapsed.TotalMilliseconds:F2} ms)");
+            Console.ReadKey();
+            return;*/
             try
             {
-                var engine = new BackupEngine(@"D:\Photo", @"H:\Backups\Photos", true);
+                var engine = new BackupEngine(@"F:\Src", @"F:\Dst", true);
                 engine.Log += WriteLog;
-                engine.DoBackup();
+                Task.Run(async () => await engine.DoBackup()).Wait();
                 sw.Stop();
                 Console.WriteLine($"Done in {sw.Elapsed.TotalMilliseconds:F2} ms");
             }
