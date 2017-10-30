@@ -15,27 +15,37 @@ namespace Backuper
     {
         static void Main(string[] args)
         {
-            const string source = @"C:\0.125gb";
-            const string target = @"D:\test\test";
-            if (File.Exists(target))
-                File.Delete(target);
+            if (args.Length != 2)
+            {
+                Console.WriteLine("Wrong args. Press any key to exit");
+                Console.ReadKey();
+                return;
+            }
+
+            var source = args[0];
+            var destination = args[1];
+
+            if (!Directory.Exists(source))
+            {
+                Console.WriteLine($"Wrong args. Directory {source} does not exist. Press any key to exit");
+                Console.ReadKey();
+                return;
+            }
+
+            if (!Directory.Exists(destination))
+            {
+                Console.WriteLine($"Wrong args. Directory {destination} does not exist. Press any key to exit");
+                Console.ReadKey();
+                return;
+            }
+
             Console.CursorVisible = false;
             var sw = new Stopwatch();
             sw.Start();
 
-            /*Debug.WriteLine($"Program {Thread.CurrentThread.ManagedThreadId}");
-
-            var sha = HashSumHelper.CopyUnbufferedAndComputeHashAsync(source, target, d => {}, true).Result;
-            
-            var sha1 = string.Concat(sha.Select(i => i.ToString("x")));
-
-            sw.Stop();
-            Console.WriteLine($"{sha1} (done in {sw.Elapsed.TotalMilliseconds:F2} ms)");
-            Console.ReadKey();
-            return;*/
             try
             {
-                var engine = new BackupEngine(@"G:\SyncTest\Src", @"D:\Test", true);
+                var engine = new BackupEngine(source, destination, true);
                 engine.Log += WriteLog;
                 engine.LogExt += WriteLogExt;
                 Task.Run(async () => await engine.DoBackup()).Wait();
@@ -45,6 +55,10 @@ namespace Backuper
             catch (Exception e)
             {
                 Console.WriteLine(e);
+            }
+            finally
+            {
+                Console.CursorVisible = true;
             }
 
             Console.ReadKey();

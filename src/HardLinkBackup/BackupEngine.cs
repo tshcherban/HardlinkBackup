@@ -78,10 +78,10 @@ namespace HardLinkBackup
 
             WriteLog("Copying...", ++category);
 
-            var processed = 1;
+            var processed = 0;
             foreach (var f in files)
             {
-                WriteLog($"[{processed++} of {files.Count}] {f.FileName.Replace(_source, null)} ", category);
+                processed++;
 
                 var newFile = f.FileName.Replace(_source, currentBkpDir);
                 var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
@@ -115,8 +115,10 @@ namespace HardLinkBackup
                 var needCopy = true;
                 if (existingFile != null)
                 {
+                    WriteLog($"[{processed} of {files.Count}] {{link}} {f.FileName.Replace(_source, null)} ", category);
                     if (HardLinkHelper.CreateHardLink(newFile, existingFile, IntPtr.Zero))
                     {
+                        
                         needCopy = false;
                         linkedCount++;
                     }
@@ -128,7 +130,14 @@ namespace HardLinkBackup
                 
                 if (needCopy)
                 {
-                    var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsync(f.FileName, newFile, p => { WriteLogExt($"{p} %");}, _allowSimultaneousReadWrite);
+                    WriteLog($"[{processed} of {files.Count}] {f.FileName.Replace(_source, null)} ", category);
+
+                    void ProgressCallback(double progress)
+                    {
+                        WriteLogExt($"{progress:F2} %");
+                    }
+
+                    var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsync(f.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
                     if (f.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
                         copiedCount++;
                     else
