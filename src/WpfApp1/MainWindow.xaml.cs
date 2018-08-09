@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows.Media;
@@ -14,9 +15,54 @@ namespace WpfApp1
         {
             InitializeComponent();
 
+            //PlotSomeWeird();
+
+            PlotSomeWeird1();
+
+            Left = 0;
+        }
+
+        private void PlotSomeWeird1()
+        {
+            var f = File.ReadAllLines(@"C:\shcherban\weird.txt")
+                .Take(1000)
+                .Select(line => line.Split(new[] {"\t"}, StringSplitOptions.RemoveEmptyEntries))
+                .Select(i => new
+                {
+                    time = double.Parse(i[0], CultureInfo.InvariantCulture),
+                    netw = int.Parse(i[1]),
+                    hash = int.Parse(i[2]),
+                    file = int.Parse(i[3]),
+                })
+                .ToList();
+
+            var plotModel = new PlotModel();
+            
+            var networkSeries = new StairStepSeries();
+            var hashSeries = new StairStepSeries();
+            var fileSeries = new StairStepSeries();
+
+            foreach (var x in f)
+            {
+                networkSeries.Points.Add(new DataPoint(x.time, x.netw));
+                hashSeries.Points.Add(new DataPoint(x.time, x.hash - 1));
+                fileSeries.Points.Add(new DataPoint(x.time, x.file - 2));
+            }
+
+            plotModel.Series.Add(networkSeries);
+            plotModel.Series.Add(hashSeries);
+            plotModel.Series.Add(fileSeries);
+
+            plotModel.ResetAllAxes();
+
+            Plot1.Model = plotModel;
+        }
+
+        private void PlotSomeWeird()
+        {
             var f = File.ReadAllLines(@"C:\0\log.txt")
                 .Select(line => line.Split(new[] {"\t"}, StringSplitOptions.RemoveEmptyEntries))
-                .Select(i => new {e = i[1], v = double.Parse(i[0]), n=int.Parse(i[2])})
+                .Select(i => new {e = i[1], v = double.Parse(i[0]), n = int.Parse(i[2])})
                 .ToList();
 
             var plotModel = new PlotModel();
@@ -92,7 +138,7 @@ namespace WpfApp1
                     if (wItem != null)
                         throw null;
 
-                    wItem = new RectangleBarItem(i.v, wy, 0, wy + h) {Color = wColor, Title = i.n.ToString() };
+                    wItem = new RectangleBarItem(i.v, wy, 0, wy + h) {Color = wColor, Title = i.n.ToString()};
                 }
                 else if (i.e == "WE")
                 {
@@ -108,7 +154,7 @@ namespace WpfApp1
                     if (rItem != null)
                         throw null;
 
-                    rItem = new RectangleBarItem(i.v, ry, 0, ry + h) { Color = rColor, Title = i.n.ToString() };
+                    rItem = new RectangleBarItem(i.v, ry, 0, ry + h) {Color = rColor, Title = i.n.ToString()};
                 }
                 else if (i.e == "RE")
                 {
@@ -124,7 +170,7 @@ namespace WpfApp1
                     if (cwwItem != null)
                         throw null;
 
-                    cwwItem = new RectangleBarItem(i.v, cwwy, 0, cwwy + h) { Color = cwwColor, Title = i.n.ToString() };
+                    cwwItem = new RectangleBarItem(i.v, cwwy, 0, cwwy + h) {Color = cwwColor, Title = i.n.ToString()};
                 }
                 else if (i.e == "CWWE")
                 {
@@ -140,7 +186,7 @@ namespace WpfApp1
                     if (lwItem != null)
                         throw null;
 
-                    lwItem = new RectangleBarItem(i.v, lwy, 0, lwy + h) { Color = lwColor, Title = i.n.ToString() };
+                    lwItem = new RectangleBarItem(i.v, lwy, 0, lwy + h) {Color = lwColor, Title = i.n.ToString()};
                 }
                 else if (i.e == "LWE")
                 {
@@ -156,7 +202,7 @@ namespace WpfApp1
                     if (lrItem != null)
                         throw null;
 
-                    lrItem = new RectangleBarItem(i.v, lry, 0, lry + h) { Color = lrColor, Title = i.n.ToString() };
+                    lrItem = new RectangleBarItem(i.v, lry, 0, lry + h) {Color = lrColor, Title = i.n.ToString()};
                 }
                 else if (i.e == "LRE")
                 {
@@ -179,8 +225,6 @@ namespace WpfApp1
             plotModel.ResetAllAxes();
 
             Plot1.Model = plotModel;
-
-            Left = 0;
         }
     }
 }
