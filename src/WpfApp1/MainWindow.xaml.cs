@@ -30,46 +30,9 @@ namespace WpfApp1
             Loaded += MainWindow_Loaded;
         }
 
-        public static long TestFunction(long seed, int count)
-        {
-            long result = seed;
-            for (int i = 0; i < count; ++i)
-            {
-                result ^= i ^ seed; // Some useless bit operations
-            }
-            return result;
-        }
-
-        private async Task Foo()
-        {
-            long seed = Environment.TickCount;  // Prevents the JIT Compiler 
-                                                // from optimizing Fkt calls away
-            long result = 0;
-            int count = 100000000;
-
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
-            while (stopwatch.ElapsedMilliseconds < 1200)
-            {
-                result = TestFunction(seed, count);
-            }
-            stopwatch.Stop();
-
-            stopwatch.Restart();
-            await Task.Delay(140);
-            stopwatch.Stop();
-            var el = stopwatch.Elapsed.TotalMilliseconds;
-            //MessageBox.Show(el.ToString());
-        }
         private void MainWindow_Loaded(object sender, System.Windows.RoutedEventArgs e)
         {
-            RunJob().ContinueWith(t =>
-            {
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    PlotSomeWeird1(t.Result);
-                }));
-            });
+            PlotSomeWeird1();
         }
 
         private class Item
@@ -92,129 +55,20 @@ namespace WpfApp1
             public bool IsFinal { get; internal set; }
         }
 
-        private async Task<IReadOnlyCollection<Item>> RunJob()
+        private void PlotSomeWeird1()
         {
-            const int BuffersCount = 2;
-            var producerBuffers = new AsyncQueue<WorkerBuffer>();
-            var consumerBuffers = new AsyncQueue<WorkerBuffer>();
-
-            var netwDuration = 20;
-            var hashDuration = 22;
-            var fileDuration = 24;
-
-            var bfs = Enumerable.Range(1, BuffersCount).Select(_ => new WorkerBuffer()).ToList();
-            producerBuffers.EnqueueRange(bfs);
-
-            var sw = Stopwatch.StartNew();
-
-            var items = new ConcurrentBag<Item>();
-
-            items.Add(new Item
-            {
-                time = 0,
-                netw = 0,
-                hash = 0,
-                file = 0,
-            });
-
-            var producerTask = Task.Run(async () =>
-            {
-                var i = 0;
-                while (i < 10)
-                {
-                    var buffer = await producerBuffers.DequeueAsync();
-
-                    items.Add(new Item
-                    {
-                        time = sw.Elapsed.TotalMilliseconds,
-                        netw = 1,
-                    });
-
-                    await Task.Delay(netwDuration);
-
-                    items.Add(new Item
-                    {
-                        time = sw.Elapsed.TotalMilliseconds,
-                        netw = 0,
-                    });
-
-                    buffer.Id = i;
-                    buffer.IsFinal = i == 9;
-
-                    consumerBuffers.Enqueue(buffer);
-
-                    i++;
-                }
-            });
-
-            var consumersTask = Task.Run(async () =>
-            {
-                while (true)
-                {
-                    var buffer = await consumerBuffers.DequeueAsync();
-
-                    items.Add(new Item
-                    {
-                        time = sw.Elapsed.TotalMilliseconds,
-                        hash = 1,
-                        file = 1,
-                    });
-
-                    var fileWriteTask = Task.Delay(fileDuration)
-                            .ContinueWith(_ => items.Add(new Item
-                            {
-                                time = sw.Elapsed.TotalMilliseconds,
-                                file = 0,
-                            }));
-
-                    var hashTask = Task.Delay(hashDuration)
-                            .ContinueWith(_ => items.Add(new Item
-                            {
-                                time = sw.Elapsed.TotalMilliseconds,
-                                hash = 0,
-                            }));
-
-                    await Task.WhenAll(fileWriteTask, hashTask);
-
-                    if (buffer.IsFinal)
-                    {
-                        break;
-                    }
-
-                    buffer.Id = buffer.Id * -1;
-                    producerBuffers.Enqueue(buffer);
-                }
-            });
-
-            await Task.WhenAll(producerTask, consumersTask);
-
-            items.Add(new Item
-            {
-                time = sw.Elapsed.TotalMilliseconds,
-                netw = 0,
-                hash = 0,
-                file = 0,
-            });
-
-            return items;
-        }
-
-        private void PlotSomeWeird1(IReadOnlyCollection<Item> items)
-        {
-            /*var f = File.ReadAllLines(@"C:\shcherban\weird.txt")
+            var f = File.ReadAllLines(@"C:\shcherban\weird.txt")
                 .Take(1000)
                 .Select(line => line.Split(new[] {"\t"}, StringSplitOptions.RemoveEmptyEntries))
                 .Select(i => new
                 {
-                    time = double.Parse(i[0], CultureInfo.InvariantCulture),
-                    netw = int.Parse(i[1]),
-                    hash = int.Parse(i[2]),
-                    file = int.Parse(i[3]),
+                    time = double.Parse(i[0], CultureInfo.CurrentCulture),
+                    netw = int.TryParse(i[1], out var r1) ? r1 : (int?) null,
+                    hash = int.TryParse(i[2], out var r2) ? r2 : (int?) null,
+                    file = int.TryParse(i[3], out var r3) ? r3 : (int?) null,
                 })
+                .OrderBy(x => x.time)
                 .ToList();
-                */
-
-            var f = items.OrderBy(x => x.time).ToList();
 
             var plotModel = new PlotModel();
 
