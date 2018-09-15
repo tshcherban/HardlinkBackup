@@ -31,7 +31,10 @@ namespace HardLinkBackup
             using (var md5 = SHA1.Create())
             {
                 //if (Size <= Constants.MaxSize)
-                return md5.ComputeHash(File.OpenRead(FileName));
+                using (var inputStream = File.OpenRead(FileName))
+                {
+                    return md5.ComputeHash(inputStream);
+                }
 
                 /*using (var str = File.Open(Path, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
