@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
+using Backuper;
 
 namespace HardLinkBackup
 {
@@ -28,21 +28,7 @@ namespace HardLinkBackup
 
         private byte[] HashFast()
         {
-            using (var md5 = SHA1.Create())
-            {
-                //if (Size <= Constants.MaxSize)
-                using (var inputStream = File.OpenRead(FileName))
-                {
-                    return md5.ComputeHash(inputStream);
-                }
-
-                /*using (var str = File.Open(Path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                {
-                    var bytes = new byte[Constants.MaxSize];
-                    str.Read(bytes, 0, Constants.MaxSize);
-                    return md5.ComputeHash(bytes);
-                }*/
-            }
+            return HashHelper.HashFileAsync(FileInfo).Result;
         }
     }
 }

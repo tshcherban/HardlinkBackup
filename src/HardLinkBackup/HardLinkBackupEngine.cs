@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace HardLinkBackup
 {
-    public class BackupEngine
+    public class HardLinkBackupEngine
     {
         private const string DateFormat = "yyyy-MM-dd-HHmmss";
 
@@ -20,10 +20,10 @@ namespace HardLinkBackup
 
         public event Action<string> LogExt;
 
-        public BackupEngine(string source, string destination, bool allowSimultaneousReadWrite)
+        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite)
         {
-            _source = source.TrimEnd('\\');
-            _destination = destination.TrimEnd('\\');
+            _source = source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            _destination = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
         }
 
@@ -69,14 +69,29 @@ namespace HardLinkBackup
                 Objects = new List<BackupFileInfo>(files.Count)
             };
 
-            var prevBackupFiles = prevBkps
-                .SelectMany(b => b.Objects.Select(fll => new { file = fll, backup = b }))
+            WriteLog("Fast check backups...", ++category);
+
+            var prevBackupFilesRaw = prevBkps
+                .SelectMany(b => b.Objects.Select(fll => new {file = fll, backup = b}))
+                .Select(x => new {exists = File.Exists(x.backup.AbsolutePath + x.file.Path), finfo = x})
                 .ToList();
+
+            var deletedCount = prevBackupFilesRaw.Count(x => !x.exists);
+            if (deletedCount > 0)
+            {
+                WriteLog($"Found {deletedCount} invalid records (file does not exist), please run health check command", ++category);
+            }
+
+            var prevBackupFiles = prevBackupFilesRaw
+                .Where(x => x.exists)
+                .Select(x => x.finfo)
+                .ToList();
+
             var copiedCount = 0;
             var linkedCount = 0;
             var linkFailedCount = 0;
 
-            WriteLog("Copying...", ++category);
+            WriteLog("Backing up...", ++category);
 
             var processed = 0;
             foreach (var f in files)
@@ -137,11 +152,15 @@ namespace HardLinkBackup
                         WriteLogExt($"{progress:F2} %");
                     }
 
-                    var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsync(f.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
+                    var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(f.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
                     if (f.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
+                    {
                         copiedCount++;
+                    }
                     else
+                    {
                         Debugger.Break();
+                    }
                 }
 
                 var fi = new FileInfoEx(newFile);
@@ -156,19 +175,40 @@ namespace HardLinkBackup
 
             currentBkp.WriteToDisk();
 
-            WriteLog($"Backup done. {copiedCount} files copied, {linkedCount} files linked, {linkFailedCount} link failed (files copied as duplicates)", ++category);
+            var log = "Backup done.";
+            if (copiedCount > 0)
+            {
+                log += $" {copiedCount} files copied";
+            }
+            if (linkedCount > 0)
+            {
+                log += $" {linkedCount} files linked";
+            }
+
+            if (linkFailedCount > 0)
+            {
+                log += $" {linkFailedCount} link failed (files copied as duplicates)";
+            }
+
+            WriteLog(log, ++category);
         }
 
         private void Validate()
         {
             if (!Directory.Exists(_source))
+            {
                 throw new InvalidOperationException("Source directory does not exist");
+            }
 
             if (!Directory.Exists(_destination))
+            {
                 throw new InvalidOperationException("Destination directory does not exist");
+            }
 
             if (BackupInfo.DiscoverBackups(_source).Any())
+            {
                 throw new InvalidOperationException("Source directory contains backups. Backing up backups is not supported");
+            }
         }
 
         private static void CreatePar(string file, BackupInfo currentBkp)

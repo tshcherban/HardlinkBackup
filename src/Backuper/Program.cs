@@ -1,14 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Security.Cryptography;
-using System.Threading;
-using System.Threading.Tasks;
 using HardLinkBackup;
-using Newtonsoft.Json;
 
 namespace Backuper
 {
@@ -16,46 +8,49 @@ namespace Backuper
     {
         static void Main(string[] args)
         {
-            var e = new BackupEngine(@"C:\shcherban\stest\src", @"C:\shcherban\stest\dst");
+            //BackupHardLinks();
 
-            
+            BackupCustom();
 
-            var totalLength = e.DoBackup().Result;
+            Console.WriteLine("Done. Press return to exit");
 
-            
+            Console.ReadLine();
+        }
 
-            Console.ReadKey();
+        private static void BackupCustom()
+        {
+            var e = new BackupEngine(@"C:\shcherban\stest\src", @"C:\shcherban\stest\dst1");
 
-            return;
-            /*var db = new BackupDatabase();
+            e.DoBackup().Wait();
+        }
 
-            var repoItem1 = new RepositoryItem
+        private static void BackupHardLinks()
+        {
+            const string source = @"C:\shcherban\stest\src";
+            const string destination = @"C:\shcherban\stest\dst";
+
+            Console.CursorVisible = false;
+            var sw = Stopwatch.StartNew();
+
+            try
             {
-                Id = 1,
-                RelativePath = @"\repo\file1",
-                HashStr = "a1",
-            };
+                var engine = new HardLinkBackupEngine(source, destination, false);
+                engine.Log += WriteLog;
+                engine.LogExt += WriteLogExt;
+                engine.DoBackup().Wait();
 
-            db.Repository.Add(repoItem1);
-
-            var backup = new BackupItem();
-
-            var backupFile = new BackupFile
+                sw.Stop();
+                Console.WriteLine($"Done in {sw.Elapsed.TotalMilliseconds:F2} ms");
+            }
+            catch (Exception e)
             {
-                RelativePath = @"\photo\house.jpg",
-                Item = repoItem1,
-            };
-
-            backup.Files.Add(backupFile);
-
-            db.Backups.Add(backup);
-
-            var str = JsonConvert.SerializeObject(db, Formatting.Indented, new JsonSerializerSettings
+                Console.WriteLine(e);
+            }
+            finally
             {
-                PreserveReferencesHandling = PreserveReferencesHandling.Objects,
-            });*/
-
-            Console.ReadKey();
+                sw.Stop();
+                Console.CursorVisible = true;
+            }
         }
 
         private static void WriteLogExt(string msg)
