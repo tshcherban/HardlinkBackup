@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Security.Policy;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 
@@ -54,6 +55,7 @@ namespace Backuper
             {
                 HashStr = hashStr,
                 RelativePath = fName.Replace(_repoDir, null).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Length = length
             };
 
             if (byHash == null)
@@ -144,29 +146,61 @@ namespace Backuper
 
             var sw = Stopwatch.StartNew();
 
+            var processed = 0;
+
+            Console.WriteLine("Writing repo...");
+
             var repoHitCount = 0;
             var newItemsCount = 0;
+            long bytesSaved = 0;
+
+            var updateLogTask = Task.Run(() =>
+            {
+                var p1 = 0;
+                while (processed < localFileInfos.Count)
+                {
+                    Console.CursorLeft = 0;
+
+                    var processSpeed = processed / sw.Elapsed.TotalSeconds;
+                    var mbSaved = bytesSaved / 1024m / 1024m;
+                    Console.Write($"{processed} of {localFileInfos.Count} done ({repoHitCount} hardlinked, {mbSaved:F2} mb saved), {processSpeed:F1} items/s");
+                    Task.Delay(250).Wait();
+                }
+            });
+
             foreach (var localFileInfo in localFileInfos)
             {
-                var filePath = Path.Combine(_sourceDir, localFileInfo.RelativePath);
-                var repoItem = await _repositoryHandler.GetOrAdd(localFileInfo.HashStr, filePath, localFileInfo.Length);
-                if (repoItem.IsFromRepo)
+                try
                 {
-                    repoHitCount++;
+                    var filePath = Path.Combine(_sourceDir, localFileInfo.RelativePath);
+                    var repoItem = await _repositoryHandler.GetOrAdd(localFileInfo.HashStr, filePath, localFileInfo.Length);
+                    if (repoItem.IsFromRepo)
+                    {
+                        repoHitCount++;
+                        bytesSaved += repoItem.Item.Length;
+                    }
+                    else
+                    {
+                        newItemsCount++;
+                    }
+
+                    bkp.Files.Add(new BackupFile
+                    {
+                        RelativePath = localFileInfo.RelativePath,
+                        Item = repoItem.Item,
+                    });
                 }
-                else
+                catch
                 {
-                    newItemsCount++;
+
                 }
 
-                bkp.Files.Add(new BackupFile
-                {
-                    RelativePath = localFileInfo.RelativePath,
-                    Item = repoItem.Item,
-                });
+                Interlocked.Increment(ref processed);
             }
 
             sw.Stop();
+
+            await updateLogTask;
 
             var speed = localFileInfos.Sum(x => x.Length) / (decimal) sw.Elapsed.TotalSeconds / 1024m / 1024m;
 
@@ -233,26 +267,65 @@ namespace Backuper
         private async Task<List<BackupFileInfo>> ReadLocal()
         {
             var files = Directory.GetFiles(_sourceDir, "*", SearchOption.AllDirectories);
+
+            var processed = 0;
+
+            var sw = Stopwatch.StartNew();
+
+            var updateLogTask = Task.Run(() =>
+            {
+                while (processed < files.Length)
+                {
+                    Console.CursorLeft = 0;
+
+                    var speed = processed / sw.Elapsed.TotalSeconds;
+                    Console.Write($"{processed} of {files.Length} done, {speed:F1} items/s");
+                    Task.Delay(500).Wait();
+                }
+
+                Console.CursorLeft = 0;
+                Console.WriteLine();
+            });
+
+            Console.WriteLine("Reading local copy...");
+            Console.WriteLine();
+
             var tasks = files
+                .AsParallel()
                 .Select(async file =>
                 {
-                    var fi = new FileInfo(file);
-                    var hashByte = await HashHelper.HashFileAsync(fi);
-                    var hash = hashByte.ToHashString();
-                    var bif = new BackupFileInfo
+                    try
                     {
-                        RelativePath = file.Replace(_sourceDir, null).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                        HashStr = hash,
-                        Length = fi.Length,
-                    };
+                        Interlocked.Increment(ref processed);
 
-                    return bif;
+                        var fi = new FileInfo(file);
+                        var hashByte = await HashHelper.HashFileAsync(fi);
+                        var hash = hashByte.ToHashString();
+                        var bif = new BackupFileInfo
+                        {
+                            RelativePath = file.Replace(_sourceDir, null).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            HashStr = hash,
+                            Length = fi.Length,
+                        };
+
+                        return bif;
+                    }
+                    catch
+                    {
+                        return null;
+                    }
+
                 })
+                .Where(x => x != null)
                 .ToList();
 
             await Task.WhenAll(tasks);
 
-            var fileInfos = tasks.Select(x => x.Result).ToList();
+            await updateLogTask;
+
+            sw.Stop();
+
+            var fileInfos = tasks.Select(x => x.Result).Where(x => x != null).ToList();
 
             return fileInfos;
         }
