@@ -94,84 +94,94 @@ namespace HardLinkBackup
             WriteLog("Backing up...", ++category);
 
             var processed = 0;
-            foreach (var f in files)
-            {
-                processed++;
-
-                var newFile = f.FileName.Replace(_source, currentBkpDir);
-                var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
-
-                var newDir = Path.GetDirectoryName(newFile);
-                if (newDir == null)
-                    throw new InvalidOperationException("Cannot get file's directory");
-
-                if (!Directory.Exists(newDir))
-                    Directory.CreateDirectory(newDir);
-
-                var fileFromPrevBackup =
-                    prevBackupFiles
-                        .FirstOrDefault(oldFile =>
-                            oldFile.file.Length == f.FileInfo.Length &&
-                            oldFile.file.Hash == f.FastHashStr);
-
-                string existingFile;
-                if (fileFromPrevBackup != null)
-                    existingFile = fileFromPrevBackup.backup.AbsolutePath + fileFromPrevBackup.file.Path;
-                else
+            var tasks = files
+                .AsParallel()
+                .WithDegreeOfParallelism(2)
+                .Select(async f =>
                 {
-                    existingFile = currentBkp.Objects
-                        .FirstOrDefault(copied =>
-                            copied.Length == f.FileInfo.Length &&
-                            copied.Hash == f.FastHashStr)?.Path;
+                    processed++;
+
+                    var newFile = f.FileName.Replace(_source, currentBkpDir);
+                    var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
+
+                    var newDir = Path.GetDirectoryName(newFile);
+                    if (newDir == null)
+                    {
+                        throw new InvalidOperationException("Cannot get file's directory");
+                    }
+
+                    if (!Directory.Exists(newDir))
+                        Directory.CreateDirectory(newDir);
+
+                    var fileFromPrevBackup =
+                        prevBackupFiles
+                            .FirstOrDefault(oldFile =>
+                                oldFile.file.Length == f.FileInfo.Length &&
+                                oldFile.file.Hash == f.FastHashStr);
+
+                    string existingFile;
+                    if (fileFromPrevBackup != null)
+                        existingFile = fileFromPrevBackup.backup.AbsolutePath + fileFromPrevBackup.file.Path;
+                    else
+                    {
+                        existingFile = currentBkp.Objects
+                            .FirstOrDefault(copied =>
+                                copied.Length == f.FileInfo.Length &&
+                                copied.Hash == f.FastHashStr)?.Path;
+                        if (existingFile != null)
+                            existingFile = currentBkp.AbsolutePath + existingFile;
+                    }
+
+                    var needCopy = true;
                     if (existingFile != null)
-                        existingFile = currentBkp.AbsolutePath + existingFile;
-                }
-
-                var needCopy = true;
-                if (existingFile != null)
-                {
-                    WriteLog($"[{processed} of {files.Count}] {{link}} {f.FileName.Replace(_source, null)} ", category);
-                    if (HardLinkHelper.CreateHardLink(newFile, existingFile, IntPtr.Zero))
                     {
-                        
-                        needCopy = false;
-                        linkedCount++;
-                    }
-                    else
-                    {
-                        linkFailedCount++;
-                    }
-                }
-                
-                if (needCopy)
-                {
-                    WriteLog($"[{processed} of {files.Count}] {f.FileName.Replace(_source, null)} ", category);
-
-                    void ProgressCallback(double progress)
-                    {
-                        WriteLogExt($"{progress:F2} %");
+                        WriteLog($"[{processed} of {files.Count}] {{link}} {f.FileName.Replace(_source, null)} ", category);
+                        if (HardLinkHelper.CreateHardLink(newFile, existingFile, IntPtr.Zero))
+                        {
+                            needCopy = false;
+                            linkedCount++;
+                        }
+                        else
+                        {
+                            linkFailedCount++;
+                        }
                     }
 
-                    var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(f.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
-                    if (f.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
+                    if (needCopy)
                     {
-                        copiedCount++;
-                    }
-                    else
-                    {
-                        Debugger.Break();
-                    }
-                }
+                        WriteLog($"[{processed} of {files.Count}] {f.FileName.Replace(_source, null)} ", category);
 
-                var fi = new FileInfoEx(newFile);
-                fi.FileInfo.Attributes = fi.FileInfo.Attributes | FileAttributes.ReadOnly;
-                currentBkp.Objects.Add(new BackupFileInfo
-                {
-                    Path = newFileRelativeName,
-                    Hash = fi.FastHashStr,
-                    Length = fi.FileInfo.Length
-                });
-            }
+                        void ProgressCallback(double progress)
+                        {
+                            WriteLogExt($"{progress:F2} %");
+                        }
+
+                        var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(f.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
+                        if (f.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
+                        {
+                            copiedCount++;
+                        }
+                        else
+                        {
+                            Debugger.Break();
+                        }
+                    }
+
+                    var fi = new FileInfoEx(newFile);
+                    fi.FileInfo.Attributes = fi.FileInfo.Attributes | FileAttributes.ReadOnly;
+                    return new BackupFileInfo
+                    {
+                        Path = newFileRelativeName,
+                        Hash = fi.FastHashStr,
+                        Length = fi.FileInfo.Length
+                    };
+                })
+                .ToList();
+
+            await Task.WhenAll(tasks);
+
+            var fis = tasks.Select(x => x.Result).ToList();
+            currentBkp.Objects.AddRange(fis);
 
             currentBkp.WriteToDisk();
 
