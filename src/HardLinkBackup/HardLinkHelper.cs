@@ -24,26 +24,22 @@ namespace HardLinkBackup
     {
         private readonly string _rootDirToReplace;
         private readonly string _realRootDir;
-        private readonly ConnectionInfo _connectionInfo;
+        private readonly SshClient _client;
 
-        public NetShareSshHardLinkHelper(string rootDirToReplace, string realRootDir, string host, string user, string password)
+        public NetShareSshHardLinkHelper(string rootDirToReplace, string realRootDir, SshClient client)
         {
             _rootDirToReplace = rootDirToReplace;
             _realRootDir = realRootDir;
-            _connectionInfo = new ConnectionInfo(host, user, new PasswordAuthenticationMethod(user, password));
+            _client = client;
         }
 
         public bool CreateHardLink(string source, string target)
         {
-            source = source.Replace(_rootDirToReplace, _realRootDir);
-            target = target.Replace(_rootDirToReplace, _realRootDir);
+            source = source.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/');
+            target = target.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/');
 
-            using (var client = new SshClient(_connectionInfo))
-            {
-                client.Connect();
-                var cmd = client.RunCommand($"ln {source} {target}");
-                return string.IsNullOrEmpty(cmd.Result);
-            }
+            var cmd = _client.RunCommand($"ln \"{source}\" \"{target}\"");
+            return string.IsNullOrEmpty(cmd.Result) && cmd.ExitStatus == 0;
         }
     }
 }

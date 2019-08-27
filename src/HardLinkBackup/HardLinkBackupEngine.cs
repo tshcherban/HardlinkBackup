@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace HardLinkBackup
@@ -16,6 +17,7 @@ namespace HardLinkBackup
         private readonly string _destination;
         private readonly bool _allowSimultaneousReadWrite;
         private readonly IHardLinkHelper _hardLinkHelper;
+        private readonly Semaphore _fileIoSemaphore;
 
         public event Action<string, int> Log;
 
@@ -27,6 +29,7 @@ namespace HardLinkBackup
             _destination = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
             _hardLinkHelper = hardLinkHelper;
+            _fileIoSemaphore = new Semaphore(1, 1);
         }
 
         private void WriteLog(string msg, int category)
@@ -75,9 +78,12 @@ namespace HardLinkBackup
 
             WriteLog("Fast check backups...", ++category);
 
+            var filesExists = Directory.EnumerateFiles(_destination, "*", SearchOption.AllDirectories).ToList();
+
             var prevBackupFilesRaw = prevBkps
                 .SelectMany(b => b.Objects.Select(fll => new {file = fll, backup = b}))
-                .Select(x => new {exists = File.Exists(x.backup.AbsolutePath + x.file.Path), finfo = x})
+                //.Select(x => new {exists = File.Exists(x.backup.AbsolutePath + x.file.Path), finfo = x})
+                .Select(x => new {exists = filesExists.Contains(x.backup.AbsolutePath + x.file.Path), finfo = x})
                 .ToList();
 
             var deletedCount = prevBackupFilesRaw.Count(x => !x.exists);
@@ -99,13 +105,12 @@ namespace HardLinkBackup
 
             var processed = 0;
             var tasks = files
-                .AsParallel()
-                .WithDegreeOfParallelism(2)
-                .Select(async f =>
+                .AsParallel().WithDegreeOfParallelism(2)
+                .Select(async localFileInfo =>
                 {
                     processed++;
 
-                    var newFile = f.FileName.Replace(_source, currentBkpDir);
+                    var newFile = localFileInfo.FileName.Replace(_source, currentBkpDir);
                     var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
 
                     var newDir = Path.GetDirectoryName(newFile);
@@ -120,8 +125,8 @@ namespace HardLinkBackup
                     var fileFromPrevBackup =
                         prevBackupFiles
                             .FirstOrDefault(oldFile =>
-                                oldFile.file.Length == f.FileInfo.Length &&
-                                oldFile.file.Hash == f.FastHashStr);
+                                oldFile.file.Length == localFileInfo.FileInfo.Length &&
+                                oldFile.file.Hash == localFileInfo.FastHashStr);
 
                     string existingFile;
                     if (fileFromPrevBackup != null)
@@ -130,8 +135,8 @@ namespace HardLinkBackup
                     {
                         existingFile = currentBkp.Objects
                             .FirstOrDefault(copied =>
-                                copied.Length == f.FileInfo.Length &&
-                                copied.Hash == f.FastHashStr)?.Path;
+                                copied.Length == localFileInfo.FileInfo.Length &&
+                                copied.Hash == localFileInfo.FastHashStr)?.Path;
                         if (existingFile != null)
                             existingFile = currentBkp.AbsolutePath + existingFile;
                     }
@@ -139,7 +144,8 @@ namespace HardLinkBackup
                     var needCopy = true;
                     if (existingFile != null)
                     {
-                        WriteLog($"[{processed} of {files.Count}] {{link}} {f.FileName.Replace(_source, null)} ", ++category);
+                        WriteLog($"[{processed} of {files.Count}] {{link}} {localFileInfo.FileName.Replace(_source, null)} ", ++category);
+                        _fileIoSemaphore.WaitOne();
                         if (_hardLinkHelper.CreateHardLink(existingFile, newFile))
                         {
                             needCopy = false;
@@ -149,19 +155,23 @@ namespace HardLinkBackup
                         {
                             linkFailedCount++;
                         }
+
+                        _fileIoSemaphore.Release();
                     }
 
                     if (needCopy)
                     {
-                        WriteLog($"[{processed} of {files.Count}] {f.FileName.Replace(_source, null)} ", ++category);
+                        WriteLog($"[{processed} of {files.Count}] {localFileInfo.FileName.Replace(_source, null)} ", ++category);
 
                         void ProgressCallback(double progress)
                         {
                             WriteLogExt($"{progress:F2} %");
                         }
 
-                        var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(f.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
-                        if (f.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
+                        _fileIoSemaphore.WaitOne();
+                        var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(localFileInfo.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
+                        _fileIoSemaphore.Release();
+                        if (localFileInfo.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
                         {
                             copiedCount++;
                         }
@@ -169,15 +179,15 @@ namespace HardLinkBackup
                         {
                             Debugger.Break();
                         }
+
+                        new FileInfo(newFile).Attributes |= FileAttributes.ReadOnly;
                     }
 
-                    var fi = new FileInfoEx(newFile);
-                    fi.FileInfo.Attributes = fi.FileInfo.Attributes | FileAttributes.ReadOnly;
                     return new BackupFileInfo
                     {
                         Path = newFileRelativeName,
-                        Hash = fi.FastHashStr,
-                        Length = fi.FileInfo.Length
+                        Hash = localFileInfo.FastHashStr,
+                        Length = localFileInfo.FileInfo.Length
                     };
                 })
                 .ToList();
@@ -194,6 +204,7 @@ namespace HardLinkBackup
             {
                 log += $" {copiedCount} files copied";
             }
+
             if (linkedCount > 0)
             {
                 log += $" {linkedCount} files linked";

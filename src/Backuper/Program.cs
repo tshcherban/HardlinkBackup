@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using HardLinkBackup;
+using Renci.SshNet;
 
 namespace Backuper
 {
@@ -9,11 +10,15 @@ namespace Backuper
     {
         static void Main(string[] args)
         {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+
             if (args == null || args.Length == 0)
             {
                 Console.WriteLine("Wrong args");
                 return;
             }
+
+            Debugger.Launch();
 
             var source = args[0];
             if (string.IsNullOrEmpty(source))
@@ -45,7 +50,12 @@ namespace Backuper
             if (args.Length == 2)
                 helper = new WinHardLinkHelper();
             else if (args.Length == 6)
-                helper = new NetShareSshHardLinkHelper(target, args[2], args[3], args[4], args[5]);
+            {
+                var ci = new ConnectionInfo(args[3], args[4], new PasswordAuthenticationMethod(args[4], args[5]));
+                _client = new SshClient(ci);
+                _client.Connect();
+                helper = new NetShareSshHardLinkHelper(target, args[2], _client);
+            }
             else
             {
                 Console.WriteLine("Wrong args");
@@ -53,6 +63,8 @@ namespace Backuper
             }
 
             BackupHardLinks(source, target, helper);
+
+            _client?.Dispose();
 
             Console.WriteLine("Done. Press return to exit");
 
@@ -100,6 +112,7 @@ namespace Backuper
         }
 
         private static int? _previousCategory;
+        private static SshClient _client;
 
 
         private static void WriteLog(string msg, int category)
