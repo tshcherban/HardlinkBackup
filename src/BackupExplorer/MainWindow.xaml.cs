@@ -18,7 +18,7 @@ namespace BackupExplorer
 
             var itemProvider = new ItemProvider();
 
-            _items = itemProvider.GetItems(@"F:\");
+            _items = itemProvider.GetItems(@"C:\shcherban\syncdest");
 
             DataContext = _items;
 
@@ -73,7 +73,7 @@ namespace BackupExplorer
             if (!(DataGrid1.SelectedItem is FileItem fi))
                 return;
 
-            var links = HardLinkHelper.GetHardLinks(fi.Path);
+            //var links = HardLinkHelper.GetHardLinks(fi.Path);
         }
     }
 
