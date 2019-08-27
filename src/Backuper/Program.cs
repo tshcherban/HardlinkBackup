@@ -1,18 +1,58 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Threading.Tasks;
+using System.IO;
 using HardLinkBackup;
 
 namespace Backuper
 {
-    class Program
+    public class Program
     {
-        const string source = @"D:\Photo";
-        const string destination = @"H:\Hardlink backups\Photo";
-
         static void Main(string[] args)
         {
-            BackupHardLinks();
+            if (args == null || args.Length == 0)
+            {
+                Console.WriteLine("Wrong args");
+                return;
+            }
+
+            var source = args[0];
+            if (string.IsNullOrEmpty(source))
+            {
+                Console.WriteLine("Source folder is not specified");
+                return;
+            }
+
+            if (!Directory.Exists(source))
+            {
+                Console.WriteLine("Source folder does not exist");
+                return;
+            }
+
+            var target = args[1];
+            if (string.IsNullOrEmpty(target))
+            {
+                Console.WriteLine("Target folder is not specified");
+                return;
+            }
+
+            if (!Directory.Exists(target))
+            {
+                Console.WriteLine("Target folder does not exist");
+                return;
+            }
+
+            IHardLinkHelper helper;
+            if (args.Length == 2)
+                helper = new WinHardLinkHelper();
+            else if (args.Length == 6)
+                helper = new NetShareSshHardLinkHelper(target, args[2], args[3], args[4], args[5]);
+            else
+            {
+                Console.WriteLine("Wrong args");
+                return;
+            }
+
+            BackupHardLinks(source, target, helper);
 
             //BackupCustom();
 
@@ -21,27 +61,16 @@ namespace Backuper
             Console.ReadLine();
         }
 
-        private static void BackupCustom()
-        {
-            var e = new BackupEngine(source, destination);
-
-            e.DoBackup().Wait();
-        }
-
-        private static Stopwatch Stopw;
-
-        private static void BackupHardLinks()
+        private static void BackupHardLinks(string source, string target, IHardLinkHelper helper)
         {
             Console.CursorVisible = false;
             var sw = Stopwatch.StartNew();
 
             try
             {
-                var engine = new HardLinkBackupEngine(source, destination, true);
+                var engine = new HardLinkBackupEngine(source, target, true, helper);
                 engine.Log += WriteLog;
                 engine.LogExt += WriteLogExt;
-
-                Stopw = Stopwatch.StartNew();
 
                 engine.DoBackup().Wait();
 
@@ -89,51 +118,4 @@ namespace Backuper
             _previousCategory = category;
         }
     }
-
-    /*if (args.Length != 2)
-            {
-                Console.WriteLine("Wrong args. Press any key to exit");
-                Console.ReadKey();
-                return;
-            }
-
-            var source = args[0];
-            var destination = args[1];
-
-            if (!Directory.Exists(source))
-            {
-                Console.WriteLine($"Wrong args. Directory {source} does not exist. Press any key to exit");
-                Console.ReadKey();
-                return;
-            }
-
-            if (!Directory.Exists(destination))
-            {
-                Console.WriteLine($"Wrong args. Directory {destination} does not exist. Press any key to exit");
-                Console.ReadKey();
-                return;
-            }
-
-            Console.CursorVisible = false;
-            var sw = new Stopwatch();
-            sw.Start();
-
-            try
-            {
-                var engine = new BackupEngine(source, destination, true);
-                engine.Log += WriteLog;
-                engine.LogExt += WriteLogExt;
-                Task.Run(async () => await engine.DoBackup()).Wait();
-                sw.Stop();
-                Console.WriteLine($"Done in {sw.Elapsed.TotalMilliseconds:F2} ms");
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-            }
-            finally
-            {
-                sw.Stop();
-                Console.CursorVisible = true;
-            }*/
 }

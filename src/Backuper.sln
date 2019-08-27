@@ -11,6 +11,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackupExplorer", "BackupExp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CopyPerformancePlot", "WpfApp1\CopyPerformancePlot.csproj", "{1253AB2E-C6C0-44C1-AEEB-3F398E2B1570}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{50F51794-5E06-4511-8312-E232E4148F1E}"
+	ProjectSection(SolutionItems) = preProject
+		Backuper.sln.DotSettings = Backuper.sln.DotSettings
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64

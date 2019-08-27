@@ -15,16 +15,18 @@ namespace HardLinkBackup
         private readonly string _source;
         private readonly string _destination;
         private readonly bool _allowSimultaneousReadWrite;
+        private readonly IHardLinkHelper _hardLinkHelper;
 
         public event Action<string, int> Log;
 
         public event Action<string> LogExt;
 
-        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite)
+        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper)
         {
             _source = source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _destination = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
+            _hardLinkHelper = hardLinkHelper;
         }
 
         private void WriteLog(string msg, int category)
@@ -53,6 +55,8 @@ namespace HardLinkBackup
             var newBkpDate = DateTime.Now;
             var newBkpName = newBkpDate.ToString(DateFormat, CultureInfo.InvariantCulture);
             var prevBkps = BackupInfo.DiscoverBackups(_destination).ToList();
+
+            WriteLog($"Found {prevBkps.Count} backups", ++category);
 
             /*WriteLog("Checking integrity", ++category);
 
@@ -135,8 +139,8 @@ namespace HardLinkBackup
                     var needCopy = true;
                     if (existingFile != null)
                     {
-                        WriteLog($"[{processed} of {files.Count}] {{link}} {f.FileName.Replace(_source, null)} ", category);
-                        if (HardLinkHelper.CreateHardLink(newFile, existingFile, IntPtr.Zero))
+                        WriteLog($"[{processed} of {files.Count}] {{link}} {f.FileName.Replace(_source, null)} ", ++category);
+                        if (_hardLinkHelper.CreateHardLink(existingFile, newFile))
                         {
                             needCopy = false;
                             linkedCount++;
@@ -149,7 +153,7 @@ namespace HardLinkBackup
 
                     if (needCopy)
                     {
-                        WriteLog($"[{processed} of {files.Count}] {f.FileName.Replace(_source, null)} ", category);
+                        WriteLog($"[{processed} of {files.Count}] {f.FileName.Replace(_source, null)} ", ++category);
 
                         void ProgressCallback(double progress)
                         {
