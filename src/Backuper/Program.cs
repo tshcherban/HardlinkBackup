@@ -54,8 +54,6 @@ namespace Backuper
 
             BackupHardLinks(source, target, helper);
 
-            //BackupCustom();
-
             Console.WriteLine("Done. Press return to exit");
 
             Console.ReadLine();

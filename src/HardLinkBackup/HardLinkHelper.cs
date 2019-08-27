@@ -59,7 +59,7 @@ namespace HardLinkBackup
     {
         private readonly string _rootDirToReplace;
         private readonly string _realRootDir;
-        private ConnectionInfo _connectionInfo;
+        private readonly ConnectionInfo _connectionInfo;
 
         public NetShareSshHardLinkHelper(string rootDirToReplace, string realRootDir, string host, string user, string password)
         {
