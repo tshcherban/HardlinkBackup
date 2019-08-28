@@ -77,12 +77,12 @@ namespace Backuper
             }
             else if (sshParams.Count == 4)
             {
-                var sshLogin = GetParameter(args, "-sl");
-                var sshPwd = GetParameter(args, "-sp");
-                var ci = new ConnectionInfo(GetParameter(args, "-sh"), sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
+                var sshLogin = GetParameter(args, "-sl:");
+                var sshPwd = GetParameter(args, "-sp:");
+                var ci = new ConnectionInfo(GetParameter(args, "-sh:"), sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
                 _client = new SshClient(ci);
                 _client.Connect();
-                helper = new NetShareSshHardLinkHelper(target, GetParameter(args, "-sr"), _client);
+                helper = new NetShareSshHardLinkHelper(target, GetParameter(args, "-sr:"), _client);
             }
             else
             {
