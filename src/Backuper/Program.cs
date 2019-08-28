@@ -40,6 +40,9 @@ namespace Backuper
         {
             if (args?.FirstOrDefault() == "VSS")
             {
+                var sourceFile = @"C:\file";
+                var destination = @"C:\file";
+
                 var impl = VssUtils.LoadImplementation();
                 var backup = impl.CreateVssBackupComponents();
                 backup.InitializeForBackup(null);
@@ -49,9 +52,9 @@ namespace Backuper
                 backup.SetBackupState(false, true, VssBackupType.Full, false);
                 var snapshotSetId = backup.StartSnapshotSet();
 
-                var volume = new FileInfo(@"C:\file").Directory.Root.Name;
+                var volume = new FileInfo(sourceFile).Directory.Root.Name;
 
-                var myGuid02 = backup.AddToSnapshotSet(volume, Guid.Empty);
+                var shadowCopyId = backup.AddToSnapshotSet(volume, Guid.Empty);
 
                 backup.PrepareForBackup();
 
@@ -74,7 +77,9 @@ namespace Backuper
  * - Make sure that you are using a volume that is not already exist
  * - This is only for learning purposes. usually we will use the snapshot directly as i show in the next example in the blog
 /***********************************/
-                backup.ExposeSnapshot(myGuid02, null, VssVolumeSnapshotAttributes.ExposedLocally, "L:");
+                //backup.ExposeSnapshot(shadowCopyId, null, VssVolumeSnapshotAttributes.ExposedLocally, "L:");
+
+                var root = backup.QuerySnapshots().First(x => x.SnapshotSetId == snapshotSetId && x.SnapshotId == shadowCopyId).OriginalVolumeName;
 
 // VSS step 8: Copy Files!
 /***********************************
@@ -84,23 +89,16 @@ namespace Backuper
 /* As long as we are working under the same snapshot,
 /* the element should be in consist state from the same point-in-time
 /***********************************/
-                var _Source1 = @"C:\file";
-                var _Destination = @"C:\folder";
-                var sVSSFile1 = _Source1.Replace(volume, @"L:\");
-                if (File.Exists(sVSSFile1))
-                    File.Copy(sVSSFile1, _Destination + @"\" + Path.GetFileName(_Source1), true);
+                
+                var vssSource = sourceFile.Replace(volume, root);
 
-// VSS step 9: Delete the snapshot (using the Exposed Snapshot name)
-                foreach (var prop in backup.QuerySnapshots())
-                {
-                    if (prop.ExposedName == @"L:\")
-                    {
-                        Console.WriteLine("prop.ExposedNam Found!");
-                        backup.DeleteSnapshot(prop.SnapshotId, true);
-                    }
-                }
+                if (File.Exists(vssSource))
+                    File.Copy(vssSource, destination + @"\" + Path.GetFileName(sourceFile) + "_copy", true);
 
-                backup = null;
+// VSS step 9: Delete the snapshot
+                backup.DeleteSnapshot(shadowCopyId, true);
+
+                backup.Dispose();
                 return;
             }
 

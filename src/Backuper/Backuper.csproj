@@ -68,6 +68,7 @@
     </Reference>
     <Reference Include="System.Core" />
     <Reference Include="System.Net" />
+    <Reference Include="System.Transactions" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BackupEngine.cs" />
