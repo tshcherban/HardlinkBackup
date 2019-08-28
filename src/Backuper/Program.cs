@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using Alphaleonis.Win32.Vss;
 using HardLinkBackup;
 using Renci.SshNet;
 
@@ -37,6 +38,72 @@ namespace Backuper
         // -sh:<ssh host>
         static void Main(string[] args)
         {
+            if (args?.FirstOrDefault() == "VSS")
+            {
+                var impl = VssUtils.LoadImplementation();
+                var backup = impl.CreateVssBackupComponents();
+                backup.InitializeForBackup(null);
+                backup.GatherWriterMetadata();
+
+                backup.SetContext(VssVolumeSnapshotAttributes.Persistent | VssVolumeSnapshotAttributes.NoAutoRelease);
+                backup.SetBackupState(false, true, VssBackupType.Full, false);
+                var snapshotSetId = backup.StartSnapshotSet();
+
+                var volume = new FileInfo(@"C:\file").Directory.Root.Name;
+
+                var myGuid02 = backup.AddToSnapshotSet(volume, Guid.Empty);
+
+                backup.PrepareForBackup();
+
+                backup.DoSnapshotSet();
+
+/***********************************
+/* At this point we have a snapshot!
+/* This action should not take more then 60 second, regardless of file or disk size.
+/* THe snapshot is not a backup or any copy!
+/* please more information at http://technet.microsoft.com/en-us/library/ee923636.aspx
+/***********************************/
+
+// VSS step 7: Expose Snapshot
+/***********************************
+/* Snapshot path look like:
+ * \\?\Volume{011682bf-23d7-11e2-93e7-806e6f6e6963}\
+ * The build in method System.IO.File.Copy do not work with path like this,
+ * Therefor, we are going to Expose the Snapshot to our application,
+ * by mapping the Snapshot to new virtual volume
+ * - Make sure that you are using a volume that is not already exist
+ * - This is only for learning purposes. usually we will use the snapshot directly as i show in the next example in the blog
+/***********************************/
+                backup.ExposeSnapshot(myGuid02, null, VssVolumeSnapshotAttributes.ExposedLocally, "L:");
+
+// VSS step 8: Copy Files!
+/***********************************
+/* Now we start to copy the files/folders/disk!
+/* Execution time can depend on what we are copying
+/* We can copy one element or several element.
+/* As long as we are working under the same snapshot,
+/* the element should be in consist state from the same point-in-time
+/***********************************/
+                var _Source1 = @"C:\file";
+                var _Destination = @"C:\folder";
+                var sVSSFile1 = _Source1.Replace(volume, @"L:\");
+                if (File.Exists(sVSSFile1))
+                    File.Copy(sVSSFile1, _Destination + @"\" + Path.GetFileName(_Source1), true);
+
+// VSS step 9: Delete the snapshot (using the Exposed Snapshot name)
+                foreach (var prop in backup.QuerySnapshots())
+                {
+                    if (prop.ExposedName == @"L:\")
+                    {
+                        Console.WriteLine("prop.ExposedNam Found!");
+                        backup.DeleteSnapshot(prop.SnapshotId, true);
+                    }
+                }
+
+                backup = null;
+                return;
+            }
+
             Console.OutputEncoding = System.Text.Encoding.UTF8;
 
             if (args == null || args.Length == 0)
