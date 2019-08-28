@@ -74,6 +74,7 @@
     <Compile Include="BackupEngine.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="VssHelper.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

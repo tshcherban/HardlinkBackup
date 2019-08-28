@@ -17,18 +17,20 @@ namespace HardLinkBackup
         private readonly string _destination;
         private readonly bool _allowSimultaneousReadWrite;
         private readonly IHardLinkHelper _hardLinkHelper;
+        private readonly Func<string, string> _sourceFilePathConverter;
         private readonly Semaphore _fileIoSemaphore;
 
         public event Action<string, int> Log;
 
         public event Action<string> LogExt;
 
-        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper)
+        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper, Func<string, string> sourceFilePathConverter = null)
         {
             _source = source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _destination = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
             _hardLinkHelper = hardLinkHelper;
+            _sourceFilePathConverter = sourceFilePathConverter;
             _fileIoSemaphore = new Semaphore(1, 1);
         }
 
