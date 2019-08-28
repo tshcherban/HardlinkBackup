@@ -1,13 +1,40 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using HardLinkBackup;
 using Renci.SshNet;
 
 namespace Backuper
 {
-    public class Program
+    public static class Program
     {
+        private static readonly string[] SshParams = {"-sl:", "-sp:", "-sr:", "-sh:"};
+
+        private static int? _previousCategory;
+        private static SshClient _client;
+
+        private static bool TryGetParameter(string[] args, string name, out string value)
+        {
+            value = null;
+            value = args.FirstOrDefault(x => x.StartsWith(name))?.Replace(name, null);
+            return !string.IsNullOrEmpty(value);
+        }
+
+        private static string GetParameter(string[] args, string name)
+        {
+            if (!TryGetParameter(args, name, out var value))
+                throw new Exception("Failed to get arg " + name);
+
+            return value;
+        }
+
+        // -s:<source>
+        // -t:<target>
+        // -sl:<ssh login>
+        // -sp:<ssh password>
+        // -sr:<ssh root dir>
+        // -sh:<ssh host>
         static void Main(string[] args)
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -18,10 +45,7 @@ namespace Backuper
                 return;
             }
 
-            Debugger.Launch();
-
-            var source = args[0];
-            if (string.IsNullOrEmpty(source))
+            if (!TryGetParameter(args, "-s:", out var source))
             {
                 Console.WriteLine("Source folder is not specified");
                 return;
@@ -33,8 +57,7 @@ namespace Backuper
                 return;
             }
 
-            var target = args[1];
-            if (string.IsNullOrEmpty(target))
+            if (!TryGetParameter(args, "-t:", out var target))
             {
                 Console.WriteLine("Target folder is not specified");
                 return;
@@ -47,18 +70,23 @@ namespace Backuper
             }
 
             IHardLinkHelper helper;
-            if (args.Length == 2)
-                helper = new WinHardLinkHelper();
-            else if (args.Length == 6)
+            var sshParams = args.Where(x => SshParams.Any(x.StartsWith)).ToList();
+            if (sshParams.Count == 0)
             {
-                var ci = new ConnectionInfo(args[3], args[4], new PasswordAuthenticationMethod(args[4], args[5]));
+                helper = new WinHardLinkHelper();
+            }
+            else if (sshParams.Count == 4)
+            {
+                var sshLogin = GetParameter(args, "-sl");
+                var sshPwd = GetParameter(args, "-sp");
+                var ci = new ConnectionInfo(GetParameter(args, "-sh"), sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
                 _client = new SshClient(ci);
                 _client.Connect();
-                helper = new NetShareSshHardLinkHelper(target, args[2], _client);
+                helper = new NetShareSshHardLinkHelper(target, GetParameter(args, "-sr"), _client);
             }
             else
             {
-                Console.WriteLine("Wrong args");
+                Console.WriteLine("Wrong ssh args");
                 return;
             }
 
@@ -110,9 +138,6 @@ namespace Backuper
 
             Console.CursorLeft = left;
         }
-
-        private static int? _previousCategory;
-        private static SshClient _client;
 
 
         private static void WriteLog(string msg, int category)
