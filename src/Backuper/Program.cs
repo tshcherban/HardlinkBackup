@@ -38,7 +38,7 @@ namespace Backuper
         static void Main(string[] args)
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
-
+            
             if (args == null || args.Length == 0)
             {
                 Console.WriteLine("Wrong args");
@@ -69,6 +69,20 @@ namespace Backuper
                 return;
             }
 
+            try
+            {
+                var testFile = Path.Combine(target, "write_access_test.txt");
+                if (File.Exists(testFile))
+                    File.Delete(testFile);
+                File.WriteAllText(testFile, "Write access test file");
+                File.Delete(testFile);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Failed to write in target directory:\r\n" + e);
+                return;
+            }
+
             IHardLinkHelper helper;
             var sshParams = args.Where(x => SshParams.Any(x.StartsWith)).ToList();
             if (sshParams.Count == 0)
@@ -79,7 +93,7 @@ namespace Backuper
             {
                 var sshLogin = GetParameter(args, "-sl:");
                 var sshPwd = GetParameter(args, "-sp:");
-                var ci = new ConnectionInfo(GetParameter(args, "-sh:"), sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
+                var ci = new ConnectionInfo(GetParameter(args, "-sh:"), 1422, sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
                 _client = new SshClient(ci);
                 _client.Connect();
                 helper = new NetShareSshHardLinkHelper(target, GetParameter(args, "-sr:"), _client);
@@ -141,6 +155,7 @@ namespace Backuper
             Console.CursorLeft = left;
         }
 
+        private const string logName = "log.txt";
 
         private static void WriteLog(string msg, int category)
         {
@@ -152,6 +167,8 @@ namespace Backuper
                 Console.Write(msg);
             else
                 Console.WriteLine(msg);
+
+            File.AppendAllText(logName, msg + "\r\n");
 
             _previousCategory = category;
         }

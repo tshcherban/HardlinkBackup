@@ -71,11 +71,12 @@ namespace HardLinkBackup
             }*/
 
             var currentBkpDir = Path.Combine(_destination, newBkpName);
+            var filesCount = files.Count;
             var currentBkp = new BackupInfo
             {
                 AbsolutePath = currentBkpDir,
                 DateTime = newBkpDate,
-                Objects = new List<BackupFileInfo>(files.Count)
+                Objects = new List<BackupFileInfo>(filesCount)
             };
 
             WriteLog("Fast check backups...", ++category);
@@ -105,99 +106,132 @@ namespace HardLinkBackup
 
             WriteLog("Backing up...", ++category);
 
+            object locker = new object();
+
             var processed = 0;
             var tasks = files
                 .AsParallel().WithDegreeOfParallelism(2)
                 .Select(async localFileInfo =>
                 {
-                    processed++;
-
-                    var newFile = localFileInfo.FileName.Replace(_source, currentBkpDir);
-                    var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
-
-                    var newDir = Path.GetDirectoryName(newFile);
-                    if (newDir == null)
+                    try
                     {
-                        throw new InvalidOperationException("Cannot get file's directory");
-                    }
+                        var processedLocal = Interlocked.Increment(ref processed);
 
-                    if (!Directory.Exists(newDir))
-                        Directory.CreateDirectory(newDir);
+                        var newFile = localFileInfo.FileName.Replace(_source, currentBkpDir);
+                        var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
 
-                    var fileFromPrevBackup =
-                        prevBackupFiles
-                            .FirstOrDefault(oldFile =>
-                                oldFile.file.Length == localFileInfo.FileInfo.Length &&
-                                oldFile.file.Hash == localFileInfo.FastHashStr);
+                        var newDir = Path.GetDirectoryName(newFile);
+                        if (newDir == null)
+                        {
+                            throw new InvalidOperationException("Cannot get file's directory");
+                        }
 
-                    string existingFile;
-                    if (fileFromPrevBackup != null)
-                        existingFile = fileFromPrevBackup.backup.AbsolutePath + fileFromPrevBackup.file.Path;
-                    else
-                    {
-                        existingFile = currentBkp.Objects
-                            .FirstOrDefault(copied =>
-                                copied.Length == localFileInfo.FileInfo.Length &&
-                                copied.Hash == localFileInfo.FastHashStr)?.Path;
+                        if (!Directory.Exists(newDir))
+                            Directory.CreateDirectory(newDir);
+
+                        var fileFromPrevBackup =
+                            prevBackupFiles
+                                .FirstOrDefault(oldFile =>
+                                    oldFile.file.Length == localFileInfo.FileInfo.Length &&
+                                    oldFile.file.Hash == localFileInfo.FastHashStr);
+
+                        string existingFile;
+                        if (fileFromPrevBackup != null)
+                            existingFile = fileFromPrevBackup.backup.AbsolutePath + fileFromPrevBackup.file.Path;
+                        else
+                        {
+                            lock (locker)
+                            {
+                                existingFile = currentBkp.Objects
+                                    .FirstOrDefault(copied =>
+                                        copied.Length == localFileInfo.FileInfo.Length &&
+                                        copied.Hash == localFileInfo.FastHashStr)?.Path;
+                            }
+                            
+                            if (existingFile != null)
+                                existingFile = currentBkp.AbsolutePath + existingFile;
+                        }
+
+                        var needCopy = true;
                         if (existingFile != null)
-                            existingFile = currentBkp.AbsolutePath + existingFile;
+                        {
+                            _fileIoSemaphore.WaitOne();
+                            WriteLog($"[{processedLocal} of {filesCount}] {{link}} {localFileInfo.FileName.Replace(_source, null)} ", Interlocked.Increment(ref category));
+                            try
+                            {
+                                if (_hardLinkHelper.CreateHardLink(existingFile, newFile))
+                                {
+                                    needCopy = false;
+                                    linkedCount++;
+                                }
+                                else
+                                {
+                                    linkFailedCount++;
+                                }
+                            }
+                            finally
+                            {
+                                _fileIoSemaphore.Release();
+                            }
+                        }
+
+                        if (needCopy)
+                        {
+                            void ProgressCallback(double progress)
+                            {
+                                WriteLogExt($"{progress:F2} %");
+                            }
+
+                            byte[] copiedHash;
+                            try
+                            {
+                                _fileIoSemaphore.WaitOne();
+                                WriteLog($"[{processedLocal} of {filesCount}] {localFileInfo.FileName.Replace(_source, null)} ", Interlocked.Increment(ref category));
+                                copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(localFileInfo.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
+                            }
+                            finally
+                            {
+                                _fileIoSemaphore.Release();
+                            }
+
+                            if (localFileInfo.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
+                            {
+                                copiedCount++;
+                            }
+                            else
+                            {
+                                Debugger.Break();
+                            }
+
+                            new FileInfo(newFile).Attributes |= FileAttributes.ReadOnly;
+                        }
+
+                        var o =  new BackupFileInfo
+                        {
+                            Path = newFileRelativeName,
+                            Hash = localFileInfo.FastHashStr,
+                            Length = localFileInfo.FileInfo.Length
+                        };
+
+                        lock (locker)
+                            currentBkp.Objects.Add(o);
+                        return o;
                     }
-
-                    var needCopy = true;
-                    if (existingFile != null)
+                    catch (Exception e)
                     {
-                        WriteLog($"[{processed} of {files.Count}] {{link}} {localFileInfo.FileName.Replace(_source, null)} ", ++category);
-                        _fileIoSemaphore.WaitOne();
-                        if (_hardLinkHelper.CreateHardLink(existingFile, newFile))
-                        {
-                            needCopy = false;
-                            linkedCount++;
-                        }
-                        else
-                        {
-                            linkFailedCount++;
-                        }
-
-                        _fileIoSemaphore.Release();
+                        Console.WriteLine();
+                        Console.WriteLine(e);
+                        Console.WriteLine();
+                        return null;
                     }
-
-                    if (needCopy)
-                    {
-                        WriteLog($"[{processed} of {files.Count}] {localFileInfo.FileName.Replace(_source, null)} ", ++category);
-
-                        void ProgressCallback(double progress)
-                        {
-                            WriteLogExt($"{progress:F2} %");
-                        }
-
-                        _fileIoSemaphore.WaitOne();
-                        var copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(localFileInfo.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
-                        _fileIoSemaphore.Release();
-                        if (localFileInfo.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
-                        {
-                            copiedCount++;
-                        }
-                        else
-                        {
-                            Debugger.Break();
-                        }
-
-                        new FileInfo(newFile).Attributes |= FileAttributes.ReadOnly;
-                    }
-
-                    return new BackupFileInfo
-                    {
-                        Path = newFileRelativeName,
-                        Hash = localFileInfo.FastHashStr,
-                        Length = localFileInfo.FileInfo.Length
-                    };
                 })
+                .Where(x => x != null)
                 .ToList();
 
             await Task.WhenAll(tasks);
 
-            var fis = tasks.Select(x => x.Result).ToList();
-            currentBkp.Objects.AddRange(fis);
+            //var fis = tasks.Select(x => x.Result).ToList();
+            //currentBkp.Objects.AddRange(fis);
 
             currentBkp.WriteToDisk();
 
