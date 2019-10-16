@@ -17,20 +17,18 @@ namespace HardLinkBackup
         private readonly string _destination;
         private readonly bool _allowSimultaneousReadWrite;
         private readonly IHardLinkHelper _hardLinkHelper;
-        private readonly Func<string, string> _sourceFilePathConverter;
         private readonly Semaphore _fileIoSemaphore;
 
         public event Action<string, int> Log;
 
         public event Action<string> LogExt;
 
-        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper, Func<string, string> sourceFilePathConverter = null)
+        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper)
         {
             _source = source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _destination = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
             _hardLinkHelper = hardLinkHelper;
-            _sourceFilePathConverter = sourceFilePathConverter;
             _fileIoSemaphore = new Semaphore(1, 1);
         }
 
@@ -82,11 +80,12 @@ namespace HardLinkBackup
             WriteLog("Fast check backups...", ++category);
 
             var filesExists = Directory.EnumerateFiles(_destination, "*", SearchOption.AllDirectories).ToList();
+            var filesExists1 = new HashSet<string>(filesExists, StringComparer.OrdinalIgnoreCase);
 
             var prevBackupFilesRaw = prevBkps
                 .SelectMany(b => b.Objects.Select(fll => new {file = fll, backup = b}))
                 //.Select(x => new {exists = File.Exists(x.backup.AbsolutePath + x.file.Path), finfo = x})
-                .Select(x => new {exists = filesExists.Contains(x.backup.AbsolutePath + x.file.Path), finfo = x})
+                .Select(x => new {exists = filesExists1.Contains(x.backup.AbsolutePath + x.file.Path), finfo = x})
                 .ToList();
 
             var deletedCount = prevBackupFilesRaw.Count(x => !x.exists);
@@ -110,7 +109,7 @@ namespace HardLinkBackup
 
             var processed = 0;
             var tasks = files
-                .AsParallel().WithDegreeOfParallelism(2)
+                .AsParallel().WithDegreeOfParallelism(1)
                 .Select(async localFileInfo =>
                 {
                     try
@@ -201,6 +200,16 @@ namespace HardLinkBackup
                             else
                             {
                                 Debugger.Break();
+                                try
+                                {
+                                    _fileIoSemaphore.Release();
+                                    Console.WriteLine();
+                                    Console.WriteLine("We should not be here!!!!!");
+                                    Console.WriteLine();
+                                }
+                                catch (SemaphoreFullException)
+                                {
+                                }
                             }
 
                             new FileInfo(newFile).Attributes |= FileAttributes.ReadOnly;
@@ -219,6 +228,17 @@ namespace HardLinkBackup
                     }
                     catch (Exception e)
                     {
+                        try
+                        {
+                            _fileIoSemaphore.Release();
+                            Console.WriteLine();
+                            Console.WriteLine("We should not be here!!!!!");
+                            Console.WriteLine();
+                        }
+                        catch (SemaphoreFullException)
+                        {
+                        }
+
                         Console.WriteLine();
                         Console.WriteLine(e);
                         Console.WriteLine();

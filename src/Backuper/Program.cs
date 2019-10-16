@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 using Alphaleonis.Win32.Vss;
 using HardLinkBackup;
@@ -39,6 +40,8 @@ namespace Backuper
         // -sh:<ssh host>
         public static async Task Main(string[] args)
         {
+            System.Diagnostics.Debugger.Launch();
+
             if (args?.FirstOrDefault() == "VSS")
             {
                 var sourceFile = @"C:\file";
@@ -105,6 +108,11 @@ namespace Backuper
 
             Console.OutputEncoding = System.Text.Encoding.UTF8;
 
+            if (args?.FirstOrDefault()?.StartsWith("-bdf:") ?? false)
+            {
+                return;
+            }
+
             if (args == null || args.Length == 0)
             {
                 Console.WriteLine("Wrong args");
@@ -129,50 +137,53 @@ namespace Backuper
                 return;
             }
 
-            if (!Directory.Exists(target))
+            using (new NetworkConnection("\\\\192.168.88.16", new NetworkCredential("shcherban", "123zAq+-")))
             {
-                Console.WriteLine("Target folder does not exist");
-                return;
-            }
+                if (!Directory.Exists(target))
+                {
+                    Console.WriteLine("Target folder does not exist");
+                    return;
+                }
 
-            try
-            {
-                var testFile = Path.Combine(target, "write_access_test.txt");
-                if (File.Exists(testFile))
+                try
+                {
+                    var testFile = Path.Combine(target, "write_access_test.txt");
+                    if (File.Exists(testFile))
+                        File.Delete(testFile);
+                    File.WriteAllText(testFile, "Write access test file");
                     File.Delete(testFile);
-                File.WriteAllText(testFile, "Write access test file");
-                File.Delete(testFile);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine("Failed to write in target directory:\r\n" + e);
-                return;
-            }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("Failed to write in target directory:\r\n" + e.Message);
+                    return;
+                }
 
-            IHardLinkHelper helper;
-            var sshParams = args.Where(x => SshParams.Any(x.StartsWith)).ToList();
-            if (sshParams.Count == 0)
-            {
-                helper = new WinHardLinkHelper();
-            }
-            else if (sshParams.Count == 4)
-            {
-                var sshLogin = GetParameter(args, "-sl:");
-                var sshPwd = GetParameter(args, "-sp:");
-                var ci = new ConnectionInfo(GetParameter(args, "-sh:"), 1422, sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
-                _client = new SshClient(ci);
-                _client.Connect();
-                helper = new NetShareSshHardLinkHelper(target, GetParameter(args, "-sr:"), _client);
-            }
-            else
-            {
-                Console.WriteLine("Wrong ssh args");
-                return;
-            }
+                IHardLinkHelper helper;
+                var sshParams = args.Where(x => SshParams.Any(x.StartsWith)).ToList();
+                if (sshParams.Count == 0)
+                {
+                    helper = new WinHardLinkHelper();
+                }
+                else if (sshParams.Count == 4)
+                {
+                    var sshLogin = GetParameter(args, "-sl:");
+                    var sshPwd = GetParameter(args, "-sp:");
+                    var ci = new ConnectionInfo(GetParameter(args, "-sh:"), 1422, sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
+                    _client = new SshClient(ci);
+                    _client.Connect();
+                    helper = new NetShareSshHardLinkHelper(target, GetParameter(args, "-sr:"), _client);
+                }
+                else
+                {
+                    Console.WriteLine("Wrong ssh args");
+                    return;
+                }
 
-            await BackupHardLinks(source, target, helper);
+                await BackupHardLinks(source, target, helper);
 
-            _client?.Dispose();
+                _client?.Dispose();
+            }
 
             Console.WriteLine("Done. Press return to exit");
 
@@ -186,9 +197,19 @@ namespace Backuper
 
             try
             {
-                using (var vssHelper = new VssHelper(new DirectoryInfo(source).Root.Name))
+                try
                 {
-                    var engine = new HardLinkBackupEngine(vssHelper.GetSnapshotFilePath(source), target, true, helper);
+                    using (var vssHelper = new VssHelper(new DirectoryInfo(source).Root.Name))
+                    {
+                        var engine = new HardLinkBackupEngine(vssHelper.GetSnapshotFilePath(source), target, true, helper);
+                        engine.Log += WriteLog;
+                        engine.LogExt += WriteLogExt;
+                        await engine.DoBackup();
+                    }
+                }
+                catch (VssException e) when (e is VssVolumeNotSupportedException || e is VssVolumeNotSupportedByProviderException)
+                {
+                    var engine = new HardLinkBackupEngine(source, target, true, helper);
                     engine.Log += WriteLog;
                     engine.LogExt += WriteLogExt;
                     await engine.DoBackup();

@@ -34,9 +34,15 @@ namespace Backuper
             _disposed = true;
             GC.SuppressFinalize(this);
 
-            _backup.DeleteSnapshot(_shadowCopyId, true);
+            if (_backup == null)
+                return;
+
+            if (_shadowCopyId != Guid.Empty)
+                _backup.DeleteSnapshot(_shadowCopyId, true);
 
             _backup.Dispose();
+
+            _backup = null;
         }
 
         public string GetSnapshotFilePath(string filePath)
