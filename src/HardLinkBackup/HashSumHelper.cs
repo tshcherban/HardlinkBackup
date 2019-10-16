@@ -36,7 +36,7 @@ namespace HardLinkBackup
 
             using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, readBufferSize, fileOptions))
             using (var bufferedSourceStream = new BufferedStream(sourceStream, readBufferSize))
-            using (var newFileStream = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, readBufferSize, FileOptions.WriteThrough | FileOptions.Asynchronous))
+            using (var newFileStream = new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, readBufferSize, FileOptions.WriteThrough | FileOptions.Asynchronous | fileFlagNoBuffering))
             {
                 var fileLength = sourceStream.Length;
                 if (fileLength == 0)
