@@ -18,7 +18,6 @@ namespace Backuper
         public VssHelper(string volumeName)
         {
             _volumeName = volumeName;
-            CreateSnapshot();
         }
 
         ~VssHelper()
@@ -38,35 +37,85 @@ namespace Backuper
                 return;
 
             if (_shadowCopyId != Guid.Empty)
-                _backup.DeleteSnapshot(_shadowCopyId, true);
+                Helpers.ExecSafe(() => _backup.DeleteSnapshot(_shadowCopyId, true));
 
-            _backup.Dispose();
-
-            _backup = null;
+            Helpers.Dispose(ref _backup);
+            _snapshotVolumeName = null;
+            _snapshotSetId = Guid.Empty;
         }
 
         public string GetSnapshotFilePath(string filePath)
         {
+            if (string.IsNullOrEmpty(_snapshotVolumeName) || _backup == null)
+                throw new InvalidOperationException("Failed to translate local file path to snapshot, snapshot was not created or created with error");
+
             return filePath.Replace(_volumeName, _snapshotVolumeName);
         }
 
-        private void CreateSnapshot()
+        public bool CreateSnapshot()
         {
-            var impl = VssUtils.LoadImplementation();
-            _backup = impl.CreateVssBackupComponents();
-            _backup.InitializeForBackup(null);
-            _backup.GatherWriterMetadata();
+            try
+            {
+                var impl = VssUtils.LoadImplementation();
 
-            _backup.SetContext(VssVolumeSnapshotAttributes.Persistent | VssVolumeSnapshotAttributes.NoAutoRelease);
-            _backup.SetBackupState(false, true, VssBackupType.Full, false);
+                _backup = impl.CreateVssBackupComponents();
+                _backup.InitializeForBackup(null);
 
-            _snapshotSetId = _backup.StartSnapshotSet();
-            _shadowCopyId = _backup.AddToSnapshotSet(_volumeName, Guid.Empty);
+                if (!_backup.IsVolumeSupported(_volumeName))
+                    return false;
 
-            _backup.PrepareForBackup();
-            _backup.DoSnapshotSet();
+                _backup.GatherWriterMetadata();
 
-            _snapshotVolumeName = _backup.QuerySnapshots().First(x => x.SnapshotSetId == _snapshotSetId && x.SnapshotId == _shadowCopyId).OriginalVolumeName;
+                _backup.SetContext(VssVolumeSnapshotAttributes.Persistent | VssVolumeSnapshotAttributes.NoAutoRelease);
+                _backup.SetBackupState(false, true, VssBackupType.Full, false);
+
+                _snapshotSetId = _backup.StartSnapshotSet();
+                _shadowCopyId = _backup.AddToSnapshotSet(_volumeName, Guid.Empty);
+
+                _backup.PrepareForBackup();
+                _backup.DoSnapshotSet();
+
+                _snapshotVolumeName = _backup.QuerySnapshots().First(x => x.SnapshotSetId == _snapshotSetId && x.SnapshotId == _shadowCopyId).OriginalVolumeName;
+
+                return true;
+            }
+            catch
+            {
+                Helpers.Dispose(ref _backup);
+                return false;
+            }
+        }
+
+        private static class Helpers
+        {
+            public static void ExecSafe(Action act)
+            {
+                try
+                {
+                    act();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
+            }
+
+            public static void Dispose<T>(ref T disposable)
+                where T : class, IDisposable
+            {
+                try
+                {
+                    disposable?.Dispose();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
+                finally
+                {
+                    disposable = null;
+                }
+            }
         }
     }
 }
