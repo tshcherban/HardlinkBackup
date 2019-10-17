@@ -10,7 +10,7 @@ namespace Backuper
 {
     public static class Program
     {
-        private static readonly string[] SshParams = {"-sl:", "-sp:", "-sr:", "-sh:"};
+        private static readonly string[] SshParams = {"-sl:", "-sp:", "-sr:", "-sh:", "-spp:"};
 
         private static int? _previousCategory;
         private static SshClient _client;
@@ -36,6 +36,7 @@ namespace Backuper
         // -sp:<ssh password>
         // -sr:<ssh root dir>
         // -sh:<ssh host>
+        // -spp:<ssh port>
         public static async Task Main(string[] args)
         {
             System.Diagnostics.Debugger.Launch();
@@ -81,13 +82,13 @@ namespace Backuper
             }
             else
             {
-                if (sshParams.Count == 4)
+                if (sshParams.Count == SshParams.Length)
                 {
                     var sshLogin = GetParameter(args, "-sl:");
                     var sshPwd = GetParameter(args, "-sp:");
                     var sshHost = GetParameter(args, "-sh:");
                     var sshHostRoot = GetParameter(args, "-sr:");
-                    var sshPort = 1422;
+                    var sshPort = int.Parse(GetParameter(args, "-spp:"));
 
                     Console.WriteLine($"Connecting to {sshLogin}@{sshHost}:{sshPort}...");
 
