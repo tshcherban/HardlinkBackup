@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
-using Alphaleonis.Win32.Vss;
 using HardLinkBackup;
 using Renci.SshNet;
 
@@ -72,7 +71,39 @@ namespace Backuper
                 return;
             }
 
-            using (new NetworkConnection("\\\\192.168.88.16", new NetworkCredential("shcherban", "123zAq+-")))
+            IHardLinkHelper helper;
+            var networkConnection = Helpers.GetDummyDisposable();
+
+            var sshParams = args.Where(x => SshParams.Any(x.StartsWith)).ToList();
+            if (sshParams.Count == 0)
+            {
+                helper = new WinHardLinkHelper();
+            }
+            else
+            {
+                if (sshParams.Count == 4)
+                {
+                    var sshLogin = GetParameter(args, "-sl:");
+                    var sshPwd = GetParameter(args, "-sp:");
+                    var sshHost = GetParameter(args, "-sh:");
+                    var sshHostRoot = GetParameter(args, "-sr:");
+
+                    var ci = new ConnectionInfo(sshHost, 1422, sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
+
+                    _client = new SshClient(ci);
+                    _client.Connect();
+
+                    helper = new NetShareSshHardLinkHelper(target, sshHostRoot, _client);
+                    networkConnection = new NetworkConnection($@"\\{sshHost}", new NetworkCredential(sshLogin, sshPwd));
+                }
+                else
+                {
+                    Console.WriteLine("Wrong ssh args");
+                    return;
+                }
+            }
+
+            using (networkConnection)
             {
                 if (!Directory.Exists(target))
                 {
@@ -85,33 +116,13 @@ namespace Backuper
                     var testFile = Path.Combine(target, "write_access_test.txt");
                     if (File.Exists(testFile))
                         File.Delete(testFile);
+
                     File.WriteAllText(testFile, "Write access test file");
                     File.Delete(testFile);
                 }
                 catch (Exception e)
                 {
                     Console.WriteLine("Failed to write in target directory:\r\n" + e.Message);
-                    return;
-                }
-
-                IHardLinkHelper helper;
-                var sshParams = args.Where(x => SshParams.Any(x.StartsWith)).ToList();
-                if (sshParams.Count == 0)
-                {
-                    helper = new WinHardLinkHelper();
-                }
-                else if (sshParams.Count == 4)
-                {
-                    var sshLogin = GetParameter(args, "-sl:");
-                    var sshPwd = GetParameter(args, "-sp:");
-                    var ci = new ConnectionInfo(GetParameter(args, "-sh:"), 1422, sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
-                    _client = new SshClient(ci);
-                    _client.Connect();
-                    helper = new NetShareSshHardLinkHelper(target, GetParameter(args, "-sr:"), _client);
-                }
-                else
-                {
-                    Console.WriteLine("Wrong ssh args");
                     return;
                 }
 
@@ -171,7 +182,7 @@ namespace Backuper
             Console.CursorLeft = left;
         }
 
-        private const string logName = "log.txt";
+        private const string LogFileName = "log.txt";
 
         private static void WriteLog(string msg, int category)
         {
@@ -184,7 +195,7 @@ namespace Backuper
             else
                 Console.WriteLine(msg);
 
-            File.AppendAllText(logName, msg + "\r\n");
+            File.AppendAllText(LogFileName, msg + "\r\n");
 
             _previousCategory = category;
         }

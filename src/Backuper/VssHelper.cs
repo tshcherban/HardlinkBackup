@@ -85,36 +85,48 @@ namespace Backuper
                 return false;
             }
         }
+    }
 
-        private static class Helpers
+    public static class Helpers
+    {
+        public static void ExecSafe(Action act)
         {
-            public static void ExecSafe(Action act)
+            try
             {
-                try
-                {
-                    act();
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e);
-                }
+                act();
             }
-
-            public static void Dispose<T>(ref T disposable)
-                where T : class, IDisposable
+            catch (Exception e)
             {
-                try
-                {
-                    disposable?.Dispose();
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e);
-                }
-                finally
-                {
-                    disposable = null;
-                }
+                Console.WriteLine(e);
+            }
+        }
+
+        public static void Dispose<T>(ref T disposable)
+            where T : class, IDisposable
+        {
+            try
+            {
+                disposable?.Dispose();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+            finally
+            {
+                disposable = null;
+            }
+        }
+
+        public static IDisposable GetDummyDisposable()
+        {
+            return new DummyDisposable();
+        }
+
+        private class DummyDisposable : IDisposable
+        {
+            public void Dispose()
+            {
             }
         }
     }
