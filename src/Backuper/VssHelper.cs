@@ -57,6 +57,8 @@ namespace Backuper
             try
             {
                 var impl = VssUtils.LoadImplementation();
+                if (impl == null)
+                    return false;
 
                 _backup = impl.CreateVssBackupComponents();
                 _backup.InitializeForBackup(null);

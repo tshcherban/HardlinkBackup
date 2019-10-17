@@ -87,8 +87,11 @@ namespace Backuper
                     var sshPwd = GetParameter(args, "-sp:");
                     var sshHost = GetParameter(args, "-sh:");
                     var sshHostRoot = GetParameter(args, "-sr:");
+                    var sshPort = 1422;
 
-                    var ci = new ConnectionInfo(sshHost, 1422, sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
+                    Console.WriteLine($"Connecting to {sshLogin}@{sshHost}:{sshPort}...");
+
+                    var ci = new ConnectionInfo(sshHost, sshPort, sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
 
                     _client = new SshClient(ci);
                     _client.Connect();
@@ -104,6 +107,7 @@ namespace Backuper
             }
 
             using (networkConnection)
+            using(_client ?? Helpers.GetDummyDisposable())
             {
                 if (!Directory.Exists(target))
                 {
@@ -127,8 +131,6 @@ namespace Backuper
                 }
 
                 await BackupHardLinks(source, target, helper);
-
-                _client?.Dispose();
             }
 
             Console.WriteLine("Done. Press return to exit");
@@ -145,6 +147,8 @@ namespace Backuper
             {
                 using (var vssHelper = new VssHelper(new DirectoryInfo(source).Root.Name))
                 {
+                    Console.WriteLine("Creating VSS snapshot...");
+
                     var actualSource = vssHelper.CreateSnapshot()
                         ? vssHelper.GetSnapshotFilePath(source)
                         : source;
@@ -157,7 +161,7 @@ namespace Backuper
 
                 sw.Stop();
 
-                Console.WriteLine($"Done in {sw.Elapsed.TotalMilliseconds:F2} ms");
+                Console.WriteLine($"Done in {sw.Elapsed:hh\\:mm\\:ss}");
             }
             catch (Exception e)
             {
