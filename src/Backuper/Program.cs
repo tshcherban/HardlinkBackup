@@ -135,26 +135,44 @@ namespace Backuper
                     return;
                 }
 
-                await BackupHardLinks(backupParams.Source, backupParams.Target, hardLinkHelper);
+                await BackupHardLinks(backupParams, hardLinkHelper, sshClient);
             }
         }
 
-        private static async Task BackupHardLinks(string source, string target, IHardLinkHelper helper)
+        private static async Task BackupHardLinks(BackupParams backupParams, IHardLinkHelper helper, SshClient sshClient)
         {
             Console.CursorVisible = false;
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
-                using (var vssHelper = new VssHelper(new DirectoryInfo(source).Root.Name))
+                using (var vssHelper = new VssHelper(new DirectoryInfo(backupParams.Source).Root.Name))
                 {
                     Console.WriteLine("Creating VSS snapshot...");
 
                     var actualSource = vssHelper.CreateSnapshot()
-                        ? vssHelper.GetSnapshotFilePath(source)
-                        : source;
+                        ? vssHelper.GetSnapshotFilePath(backupParams.Source)
+                        : backupParams.Source;
 
-                    var engine = new HardLinkBackupEngine(actualSource, target, true, helper);
+                    Func<string[]> targetFilesEnumerator = () =>
+                    {
+                        var cmd = sshClient.RunCommand($"find \"{backupParams.SshRootDir}\" -type f");
+                        var result = cmd.Result;
+                        var es = cmd.ExitStatus;
+
+                        if (es != 0 || string.IsNullOrEmpty(result))
+                            return new string[0];
+
+                        var files = result.Split(new[] {"\r", "\n", "\r\n"}, StringSplitOptions.RemoveEmptyEntries)
+                            .Where(x => !x.EndsWith(".bkp/info.json"))
+                            .Select(x => x.Replace(backupParams.SshRootDir, backupParams.Target))
+                            .ToArray();
+
+                        return files;
+
+                    };
+
+                    var engine = new HardLinkBackupEngine(actualSource, backupParams.Target, true, helper, targetFilesEnumerator);
                     engine.Log += WriteLog;
                     engine.LogExt += WriteLogExt;
                     await engine.DoBackup();

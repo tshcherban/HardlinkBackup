@@ -17,18 +17,20 @@ namespace HardLinkBackup
         private readonly string _destination;
         private readonly bool _allowSimultaneousReadWrite;
         private readonly IHardLinkHelper _hardLinkHelper;
+        private readonly Func<string[]> _fileEnumerator;
         private readonly Semaphore _fileIoSemaphore;
 
         public event Action<string, int> Log;
 
         public event Action<string> LogExt;
 
-        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper)
+        public HardLinkBackupEngine(string source, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper, Func<string[]> fileEnumerator)
         {
             _source = source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _destination = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
             _hardLinkHelper = hardLinkHelper;
+            _fileEnumerator = fileEnumerator;
             _fileIoSemaphore = new Semaphore(1, 1);
         }
 
@@ -40,6 +42,11 @@ namespace HardLinkBackup
         private void WriteLogExt(string msg)
         {
             LogExt?.Invoke(msg);
+        }
+
+        private static string NormalizePath(string path, char separator = '\\')
+        {
+            return path?.Replace('/', separator).Replace('\\', separator);
         }
 
         public async Task DoBackup()
@@ -79,13 +86,24 @@ namespace HardLinkBackup
 
             WriteLog("Fast check backups...", ++category);
 
-            var filesExists = Directory.EnumerateFiles(_destination, "*", SearchOption.AllDirectories).ToList();
+            string[] filesExists;
+            try
+            {
+                filesExists = _fileEnumerator().Select(x => NormalizePath(x)).ToArray();
+            }
+            catch
+            {
+                Log?.Invoke("Failed to enumerate files fast, going slow route...", ++category);
+
+                filesExists = Directory.EnumerateFiles(_destination, "*", SearchOption.AllDirectories).ToArray();
+            }
+
             var filesExists1 = new HashSet<string>(filesExists, StringComparer.OrdinalIgnoreCase);
 
             var prevBackupFilesRaw = prevBkps
                 .SelectMany(b => b.Objects.Select(fll => new {file = fll, backup = b}))
                 //.Select(x => new {exists = File.Exists(x.backup.AbsolutePath + x.file.Path), finfo = x})
-                .Select(x => new {exists = filesExists1.Contains(x.backup.AbsolutePath + x.file.Path), finfo = x})
+                .Select(x => new {exists = filesExists1.Contains(NormalizePath(x.backup.AbsolutePath + x.file.Path)), finfo = x})
                 .ToList();
 
             var deletedCount = prevBackupFilesRaw.Count(x => !x.exists);
