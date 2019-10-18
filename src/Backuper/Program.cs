@@ -20,14 +20,6 @@ namespace Backuper
             return !string.IsNullOrEmpty(value);
         }
 
-        private static string GetParameter(string[] args, string name)
-        {
-            if (!TryGetParameter(args, name, out var value))
-                throw new Exception("Failed to get arg " + name);
-
-            return value;
-        }
-
         private static string GetParameterOrDefault(string[] args, string name)
         {
             return TryGetParameter(args, name, out var value) ? value : null;
@@ -61,12 +53,12 @@ namespace Backuper
             {
                 Source = GetParameterOrDefault(args, "-s:"),
                 Target = GetParameterOrDefault(args, "-t:"),
-                SshLogin = GetParameter(args, "-sl:"),
-                SshPassword = GetParameter(args, "-sp:"),
-                SshHost = GetParameter(args, "-sh:"),
-                SshRootDir = GetParameter(args, "-sr:"),
-                SshPort = int.Parse(GetParameter(args, "-spp:")),
-                LogFile = GetParameter(args, "-l:"),
+                SshLogin = GetParameterOrDefault(args, "-sl:"),
+                SshPassword = GetParameterOrDefault(args, "-sp:"),
+                SshHost = GetParameterOrDefault(args, "-sh:"),
+                SshRootDir = GetParameterOrDefault(args, "-sr:"),
+                SshPort = TryGetParameter(args, "-spp:", out var sshPort) ? int.Parse(sshPort) : (int?) null,
+                LogFile = GetParameterOrDefault(args, "-l:"),
             };
 
             await Backup(p);
