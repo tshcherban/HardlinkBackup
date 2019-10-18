@@ -10,10 +10,8 @@ namespace Backuper
 {
     public static class Program
     {
-        private static readonly string[] SshParams = {"-sl:", "-sp:", "-sr:", "-sh:", "-spp:"};
-
         private static int? _previousCategory;
-        private static SshClient _client;
+        private static string _logFileName;
 
         private static bool TryGetParameter(string[] args, string name, out string value)
         {
@@ -30,87 +28,101 @@ namespace Backuper
             return value;
         }
 
-        // -s:<source>
-        // -t:<target>
-        // -sl:<ssh login>
-        // -sp:<ssh password>
-        // -sr:<ssh root dir>
-        // -sh:<ssh host>
-        // -spp:<ssh port>
+        private static string GetParameterOrDefault(string[] args, string name)
+        {
+            return TryGetParameter(args, name, out var value) ? value : null;
+        }
+
+        // -s:      <source>
+        // -t:      <target>
+        // -sl:     <ssh login>
+        // -sp:     <ssh password>
+        // -sr:     <ssh root dir>
+        // -sh:     <ssh host>
+        // -spp:    <ssh port>
+        // -l:      <log>
+        // -bdf:    <backup definition file>
         public static async Task Main(string[] args)
         {
             System.Diagnostics.Debugger.Launch();
 
             Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-            if (args?.FirstOrDefault()?.StartsWith("-bdf:") ?? false)
-            {
-                return;
-            }
-
             if (args == null || args.Length == 0)
             {
-                Console.WriteLine("Wrong args");
+                Console.WriteLine("No args, nothing to do");
                 return;
             }
 
-            if (!TryGetParameter(args, "-s:", out var source))
+            if (args.Length == 1 && TryGetParameter(args, "-bdf:", out var backupDefinitionFile))
+                args = File.ReadAllLines(backupDefinitionFile);
+
+            var p = new BackupParams
+            {
+                Source = GetParameterOrDefault(args, "-s:"),
+                Target = GetParameterOrDefault(args, "-t:"),
+                SshLogin = GetParameter(args, "-sl:"),
+                SshPassword = GetParameter(args, "-sp:"),
+                SshHost = GetParameter(args, "-sh:"),
+                SshRootDir = GetParameter(args, "-sr:"),
+                SshPort = int.Parse(GetParameter(args, "-spp:")),
+                LogFile = GetParameter(args, "-l:"),
+            };
+
+            await Backup(p);
+
+            Console.WriteLine("Done. Press return to exit");
+
+            Console.ReadLine();
+        }
+
+        private static async Task Backup(BackupParams backupParams)
+        {
+            if (string.IsNullOrEmpty(backupParams.Source))
             {
                 Console.WriteLine("Source folder is not specified");
                 return;
             }
 
-            if (!Directory.Exists(source))
+            if (!Directory.Exists(backupParams.Source))
             {
                 Console.WriteLine("Source folder does not exist");
                 return;
             }
 
-            if (!TryGetParameter(args, "-t:", out var target))
+            if (string.IsNullOrEmpty(backupParams.Target))
             {
                 Console.WriteLine("Target folder is not specified");
                 return;
             }
 
-            IHardLinkHelper helper;
+            _logFileName = backupParams.LogFile;
+
+            IHardLinkHelper hardLinkHelper;
             var networkConnection = Helpers.GetDummyDisposable();
 
-            var sshParams = args.Where(x => SshParams.Any(x.StartsWith)).ToList();
-            if (sshParams.Count == 0)
+            SshClient sshClient = null;
+            if (!backupParams.IsSshDefined)
             {
-                helper = new WinHardLinkHelper();
+                hardLinkHelper = new WinHardLinkHelper();
             }
             else
             {
-                if (sshParams.Count == SshParams.Length)
-                {
-                    var sshLogin = GetParameter(args, "-sl:");
-                    var sshPwd = GetParameter(args, "-sp:");
-                    var sshHost = GetParameter(args, "-sh:");
-                    var sshHostRoot = GetParameter(args, "-sr:");
-                    var sshPort = int.Parse(GetParameter(args, "-spp:"));
+                Console.WriteLine($"Connecting to {backupParams.SshLogin}@{backupParams.SshHost}:{backupParams.SshPort}...");
 
-                    Console.WriteLine($"Connecting to {sshLogin}@{sshHost}:{sshPort}...");
+                var ci = new ConnectionInfo(backupParams.SshHost, backupParams.SshPort ?? throw new Exception("SSH port not defined"), backupParams.SshLogin, new PasswordAuthenticationMethod(backupParams.SshLogin, backupParams.SshPassword));
 
-                    var ci = new ConnectionInfo(sshHost, sshPort, sshLogin, new PasswordAuthenticationMethod(sshLogin, sshPwd));
+                sshClient = new SshClient(ci);
+                sshClient.Connect();
 
-                    _client = new SshClient(ci);
-                    _client.Connect();
-
-                    helper = new NetShareSshHardLinkHelper(target, sshHostRoot, _client);
-                    networkConnection = new NetworkConnection($@"\\{sshHost}", new NetworkCredential(sshLogin, sshPwd));
-                }
-                else
-                {
-                    Console.WriteLine("Wrong ssh args");
-                    return;
-                }
+                hardLinkHelper = new NetShareSshHardLinkHelper(backupParams.Target, backupParams.SshRootDir, sshClient);
+                networkConnection = new NetworkConnection($@"\\{backupParams.SshHost}", new NetworkCredential(backupParams.SshLogin, backupParams.SshPassword));
             }
 
             using (networkConnection)
-            using(_client ?? Helpers.GetDummyDisposable())
+            using (sshClient ?? Helpers.GetDummyDisposable())
             {
-                if (!Directory.Exists(target))
+                if (!Directory.Exists(backupParams.Target))
                 {
                     Console.WriteLine("Target folder does not exist");
                     return;
@@ -118,7 +130,7 @@ namespace Backuper
 
                 try
                 {
-                    var testFile = Path.Combine(target, "write_access_test.txt");
+                    var testFile = Path.Combine(backupParams.Target, "write_access_test.txt");
                     if (File.Exists(testFile))
                         File.Delete(testFile);
 
@@ -131,12 +143,8 @@ namespace Backuper
                     return;
                 }
 
-                await BackupHardLinks(source, target, helper);
+                await BackupHardLinks(backupParams.Source, backupParams.Target, hardLinkHelper);
             }
-
-            Console.WriteLine("Done. Press return to exit");
-
-            Console.ReadLine();
         }
 
         private static async Task BackupHardLinks(string source, string target, IHardLinkHelper helper)
@@ -187,8 +195,6 @@ namespace Backuper
             Console.CursorLeft = left;
         }
 
-        private const string LogFileName = "log.txt";
-
         private static void WriteLog(string msg, int category)
         {
             Console.CursorLeft = 0;
@@ -200,7 +206,8 @@ namespace Backuper
             else
                 Console.WriteLine(msg);
 
-            File.AppendAllText(LogFileName, msg + "\r\n");
+            if (!string.IsNullOrEmpty(_logFileName))
+                File.AppendAllText(_logFileName, msg + "\r\n");
 
             _previousCategory = category;
         }
