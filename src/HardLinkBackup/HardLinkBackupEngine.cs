@@ -18,7 +18,6 @@ namespace HardLinkBackup
         private readonly bool _allowSimultaneousReadWrite;
         private readonly IHardLinkHelper _hardLinkHelper;
         private readonly Func<string[]> _fileEnumerator;
-        private readonly Semaphore _fileIoSemaphore;
 
         public event Action<string, int> Log;
 
@@ -31,7 +30,6 @@ namespace HardLinkBackup
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
             _hardLinkHelper = hardLinkHelper;
             _fileEnumerator = fileEnumerator;
-            _fileIoSemaphore = new Semaphore(1, 1);
         }
 
         private void WriteLog(string msg, int category)
@@ -44,13 +42,20 @@ namespace HardLinkBackup
             LogExt?.Invoke(msg);
         }
 
-        private static string NormalizePath(string path, char separator = '\\')
+        private static string NormalizePathWin(string path, char separator = '\\')
         {
             return path?.Replace('/', separator).Replace('\\', separator);
         }
 
+        private static string NormalizePathUnix(string path, char separator = '/')
+        {
+            return path?.Replace('\\', separator).Replace('/', separator);
+        }
+
         public async Task DoBackup()
         {
+            await Task.Yield();
+
             Validate();
 
             var category = 0;
@@ -89,7 +94,7 @@ namespace HardLinkBackup
             string[] filesExists;
             try
             {
-                filesExists = _fileEnumerator().Select(x => NormalizePath(x)).ToArray();
+                filesExists = _fileEnumerator().Select(x => NormalizePathWin(x)).ToArray();
             }
             catch
             {
@@ -102,8 +107,7 @@ namespace HardLinkBackup
 
             var prevBackupFilesRaw = prevBkps
                 .SelectMany(b => b.Objects.Select(fll => new {file = fll, backup = b}))
-                //.Select(x => new {exists = File.Exists(x.backup.AbsolutePath + x.file.Path), finfo = x})
-                .Select(x => new {exists = filesExists1.Contains(NormalizePath(x.backup.AbsolutePath + x.file.Path)), finfo = x})
+                .Select(x => new {exists = filesExists1.Contains(NormalizePathWin(x.backup.AbsolutePath + x.file.Path)), finfo = x})
                 .ToList();
 
             var deletedCount = prevBackupFilesRaw.Count(x => !x.exists);
@@ -119,16 +123,12 @@ namespace HardLinkBackup
 
             var copiedCount = 0;
             var linkedCount = 0;
-            var linkFailedCount = 0;
 
             WriteLog("Backing up...", ++category);
 
-            object locker = new object();
-
             var processed = 0;
-            var tasks = files
-                .AsParallel().WithDegreeOfParallelism(1)
-                .Select(async localFileInfo =>
+            files
+                .ForEach(localFileInfo =>
                 {
                     try
                     {
@@ -157,14 +157,11 @@ namespace HardLinkBackup
                             existingFile = fileFromPrevBackup.backup.AbsolutePath + fileFromPrevBackup.file.Path;
                         else
                         {
-                            lock (locker)
-                            {
-                                existingFile = currentBkp.Objects
-                                    .FirstOrDefault(copied =>
-                                        copied.Length == localFileInfo.FileInfo.Length &&
-                                        copied.Hash == localFileInfo.FastHashStr)?.Path;
-                            }
-                            
+                            existingFile = currentBkp.Objects
+                                .FirstOrDefault(copied =>
+                                    copied.Length == localFileInfo.FileInfo.Length &&
+                                    copied.Hash == localFileInfo.FastHashStr)?.Path;
+
                             if (existingFile != null)
                                 existingFile = currentBkp.AbsolutePath + existingFile;
                         }
@@ -172,24 +169,10 @@ namespace HardLinkBackup
                         var needCopy = true;
                         if (existingFile != null)
                         {
-                            _fileIoSemaphore.WaitOne();
                             WriteLog($"[{processedLocal} of {filesCount}] {{link}} {localFileInfo.FileName.Replace(_source, null)} ", Interlocked.Increment(ref category));
-                            try
-                            {
-                                if (_hardLinkHelper.CreateHardLink(existingFile, newFile))
-                                {
-                                    needCopy = false;
-                                    linkedCount++;
-                                }
-                                else
-                                {
-                                    linkFailedCount++;
-                                }
-                            }
-                            finally
-                            {
-                                _fileIoSemaphore.Release();
-                            }
+                            _hardLinkHelper.AddHardLinkToQueue(existingFile, newFile);
+                            needCopy = false;
+                            linkedCount++;
                         }
 
                         if (needCopy)
@@ -199,17 +182,8 @@ namespace HardLinkBackup
                                 WriteLogExt($"{progress:F2} %");
                             }
 
-                            byte[] copiedHash;
-                            try
-                            {
-                                _fileIoSemaphore.WaitOne();
-                                WriteLog($"[{processedLocal} of {filesCount}] {localFileInfo.FileName.Replace(_source, null)} ", Interlocked.Increment(ref category));
-                                copiedHash = await HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(localFileInfo.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite);
-                            }
-                            finally
-                            {
-                                _fileIoSemaphore.Release();
-                            }
+                            WriteLog($"[{processedLocal} of {filesCount}] {localFileInfo.FileName.Replace(_source, null)} ", Interlocked.Increment(ref category));
+                            var copiedHash = HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(localFileInfo.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite).Result;
 
                             if (localFileInfo.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
                             {
@@ -218,58 +192,31 @@ namespace HardLinkBackup
                             else
                             {
                                 Debugger.Break();
-                                try
-                                {
-                                    _fileIoSemaphore.Release();
-                                    Console.WriteLine();
-                                    Console.WriteLine("We should not be here!!!!!");
-                                    Console.WriteLine();
-                                }
-                                catch (SemaphoreFullException)
-                                {
-                                }
                             }
 
                             new FileInfo(newFile).Attributes |= FileAttributes.ReadOnly;
                         }
 
-                        var o =  new BackupFileInfo
+                        var o = new BackupFileInfo
                         {
                             Path = newFileRelativeName,
                             Hash = localFileInfo.FastHashStr,
                             Length = localFileInfo.FileInfo.Length
                         };
 
-                        lock (locker)
-                            currentBkp.Objects.Add(o);
-                        return o;
+                        currentBkp.Objects.Add(o);
                     }
                     catch (Exception e)
                     {
-                        try
-                        {
-                            _fileIoSemaphore.Release();
-                            Console.WriteLine();
-                            Console.WriteLine("We should not be here!!!!!");
-                            Console.WriteLine();
-                        }
-                        catch (SemaphoreFullException)
-                        {
-                        }
-
                         Console.WriteLine();
                         Console.WriteLine(e);
                         Console.WriteLine();
-                        return null;
                     }
-                })
-                .Where(x => x != null)
-                .ToList();
+                });
 
-            await Task.WhenAll(tasks);
+            WriteLog("Writing hardlinks to target", Interlocked.Increment(ref category));
 
-            //var fis = tasks.Select(x => x.Result).ToList();
-            //currentBkp.Objects.AddRange(fis);
+            _hardLinkHelper.CreateHardLinks();
 
             currentBkp.WriteToDisk();
 
@@ -282,11 +229,6 @@ namespace HardLinkBackup
             if (linkedCount > 0)
             {
                 log += $" {linkedCount} files linked";
-            }
-
-            if (linkFailedCount > 0)
-            {
-                log += $" {linkFailedCount} link failed (files copied as duplicates)";
             }
 
             WriteLog(log, ++category);
