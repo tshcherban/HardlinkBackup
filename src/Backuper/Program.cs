@@ -1,10 +1,14 @@
 ﻿using System;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using HardLinkBackup;
+using ICSharpCode.SharpZipLib.GZip;
+using ICSharpCode.SharpZipLib.Tar;
+using ICSharpCode.SharpZipLib.Zip.Compression;
 using Renci.SshNet;
 
 namespace Backuper
@@ -37,6 +41,93 @@ namespace Backuper
         // -bdf:    <backup definition file>
         public static async Task Main(string[] args)
         {
+            using (new NetworkConnection($@"\\192.168.56.102", new NetworkCredential("synotest", "123456")))
+            {
+                var t = @"\\192.168.56.102\share\small-files-test";
+                var s = @"C:\shcherban\gitlab\vsonline";
+
+                if (Directory.Exists(t))
+                    Directory.Delete(t, true);
+                Directory.CreateDirectory(t);
+
+                var filesToCopy = Directory.EnumerateFiles(s, "*", SearchOption.AllDirectories)
+                    .Select(x => new
+                    {
+                        src = x,
+                        tgt = Path.Combine(t, x.Replace(s, null).Replace('\\', '_')),
+                        tgtRel = x.Replace(s, null)/*.Replace('\\', '_')*/,
+                    })
+                    .ToList();
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                /*foreach (var f in filesToCopy)
+                {
+                    File.Copy(f.src, f.tgt);
+                }
+                sw.Stop();*/
+
+                Console.WriteLine($"{sw.Elapsed:g}");
+
+                Directory.Delete(t, true);
+                Directory.CreateDirectory(t);
+                using (var ssh = new SshClient("192.168.56.102", 22, "synotest", "123456"))
+                {
+                    ssh.Connect();
+                    sw = System.Diagnostics.Stopwatch.StartNew();
+
+                    /*using (var zf = File.Create(Path.Combine(t, "zip.zip")))
+                    {
+                        using (var zip = new ZipArchive(zf, ZipArchiveMode.Create))
+                        {
+                            foreach (var f in filesToCopy)
+                            {
+                                var entry = zip.CreateEntry(f.tgtRel, CompressionLevel.NoCompression);
+                                using (var entryStream = entry.Open())
+                                {
+                                    using (var srcFile = File.OpenRead(f.src))
+                                    {
+                                        srcFile.CopyTo(entryStream);
+                                    }
+                                }
+                            }
+                        }
+                    }*/
+
+                    var tarFile = Path.Combine(t, "zip.tar.gz");
+                    using (var outStream = File.Create(tarFile))
+                    using (var gzoStream = new GZipOutputStream(outStream))
+                    using (var tarArchive = TarArchive.CreateOutputTarArchive(gzoStream))
+                    {
+                        gzoStream.SetLevel(Deflater.BEST_SPEED);
+
+                        foreach (var f in filesToCopy)
+                        {
+                            tarArchive.RootPath = Path.GetDirectoryName(f.src);
+
+                            var tarEntry = TarEntry.CreateEntryFromFile(f.src);
+                            tarEntry.Name = f.tgtRel.Replace(@"\\", null).TrimStart('\\').Replace('\\', '/');
+
+                            tarArchive.WriteEntry(tarEntry, true);
+                        }
+                    }
+
+                    var result = ssh.RunCommand("tar -xzf /volume1/share/small-files-test/zip.tar.gz -C /volume1/share/small-files-test/");
+                    if (result.ExitStatus != 0 || !string.IsNullOrEmpty(result.Error))
+                        throw new Exception(result.Error);
+
+                    //File.Delete(tarFile);
+                    var res = result.Result;
+                }
+                
+
+                sw.Stop();
+
+                Console.WriteLine($"tar.gz {sw.Elapsed:g}");
+                Console.ReadLine();
+            }
+
+            return;
+
             System.Diagnostics.Debugger.Launch();
 
             Console.OutputEncoding = System.Text.Encoding.UTF8;
