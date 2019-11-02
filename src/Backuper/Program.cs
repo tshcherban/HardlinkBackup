@@ -182,6 +182,9 @@ namespace Backuper
             }
             catch (Exception e)
             {
+                sw.Stop();
+
+                Console.WriteLine($"Failed (operation lasted {sw.Elapsed:hh\\:mm\\:ss})");
                 Console.WriteLine(e);
             }
             finally

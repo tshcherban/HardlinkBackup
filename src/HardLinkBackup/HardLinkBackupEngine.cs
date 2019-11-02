@@ -305,9 +305,15 @@ namespace HardLinkBackup
             }
 
             WriteLog("Writing hardlinks to target", Interlocked.Increment(ref category));
-            _hardLinkHelper.CreateHardLinks();
 
-            currentBkp.WriteToDisk();
+            try
+            {
+                _hardLinkHelper.CreateHardLinks();
+            }
+            finally
+            {
+                currentBkp.WriteToDisk();
+            }
 
             var log = "Backup done.";
             if (copiedCount > 0)
