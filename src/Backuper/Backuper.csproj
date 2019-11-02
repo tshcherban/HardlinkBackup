@@ -61,6 +61,10 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\SharpCompress\SharpCompress.csproj">
+      <Project>{1bcc221d-712b-46af-808c-bebc7e2f6079}</Project>
+      <Name>SharpCompress</Name>
+    </ProjectReference>
     <ProjectReference Include="..\HardLinkBackup\HardLinkBackup.csproj">
       <Project>{BFE41200-E002-4CA0-88CE-A94092DFDF04}</Project>
       <Name>HardLinkBackup</Name>

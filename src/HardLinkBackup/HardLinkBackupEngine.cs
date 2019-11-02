@@ -4,13 +4,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using SharpCompress.Common;
-using SharpCompress.Compressors;
-using SharpCompress.Compressors.Deflate;
-using SharpCompress.Writers.Tar;
 
 namespace HardLinkBackup
 {
@@ -146,22 +141,12 @@ namespace HardLinkBackup
             var linkedCount = 0;
 
             var svcDir = currentBkp.CreateFolders();
-            var tarFilePath = $"{svcDir}/files.tar.gz";
+            var smallFilesTarPath = $"{svcDir}/small-files.tar.gz";
+            var directoriesTarPath = $"{svcDir}/dir-tree.tar.gz";
 
-            var hlp = new SessionFileHelper(currentBkp, prevBackupFiles);
+            var findHelper = new SessionFileFindHelper(currentBkp, prevBackupFiles);
 
-            var dirList = files
-                .Select(x => x.FileInfo.DirectoryName?.Replace(_source, currentBkpDir))
-                .Where(x => !string.IsNullOrEmpty(x))
-                .Distinct()
-                .ToList();
-
-            WriteLog("Creating directories...", ++category);
-            foreach (var dir in dirList)
-            {
-                if (!Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-            }
+            CreateDirectories(files, directoriesTarPath, ref category);
 
             WriteLog("Backing up...", ++category);
 
@@ -176,57 +161,84 @@ namespace HardLinkBackup
                 }
             }
 
+            var processed = 0;
+
             if (smallFiles.Count > 0)
             {
+                WriteLog($"Small files hash calculation...", ++category);
+
+                var cnt = smallFiles
+                    .AsParallel()
+                    .Select(x =>
+                    {
+                        try
+                        {
+                            return x.FastHashStr;
+                        }
+                        catch (Exception exception)
+                        {
+                            Console.WriteLine(exception);
+                            return "invalid hash: " + exception.Message;
+                        }
+                    })
+                    .Count(x => x.StartsWith("invalid hash"));
+                if (cnt > 0)
+                    WriteLog($"Found {cnt} invalid records", ++category);
+
                 WriteLog($"{smallFiles.Count} files will be transferred in a batch as tar.gz", ++category);
 
-                using (var outStream = File.Create(tarFilePath))
-                using (var gzStream = new GZipStream(outStream, CompressionMode.Compress, CompressionLevel.BestSpeed))
-                using (var tarArchive = new TarWriter(gzStream, new TarWriterOptions(CompressionType.None, true)
+                bool created;
+                using (var tar = new TarGzHelper(smallFilesTarPath))
                 {
-                    ArchiveEncoding = new ArchiveEncoding()
+                    foreach (var file in smallFiles)
                     {
-                        Default = Encoding.UTF8,
-                        Forced = Encoding.UTF8,
-                    },
-                }))
-                {
-                    for (var index = smallFiles.Count - 1; index >= 0; index--)
-                    {
-                        var file = smallFiles[index];
-                        var newFile = file.FileName.Replace(_source, currentBkpDir);
-                        var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
+                        try
+                        {
+                            var newFile = file.FileName.Replace(_source, currentBkpDir);
+                            var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
 
-                        var existingFile = hlp.FindFile(file);
-                        if (existingFile != null)
-                        {
-                            _hardLinkHelper.AddHardLinkToQueue(existingFile, newFile);
-                            smallFiles.RemoveAt(index);
-                            linkedCount++;
-                        }
-                        else
-                        {
-                            var relFileName = NormalizePathUnix(file.FileName.Replace(_source, null)).TrimStart('/');
-                            using (var fl = file.FileInfo.OpenRead())
-                                tarArchive.Write(relFileName, fl, file.FileInfo.LastAccessTime);
-                        }
+                            var existingFile = findHelper.FindFile(file);
+                            if (existingFile != null)
+                            {
+                                _hardLinkHelper.AddHardLinkToQueue(existingFile, newFile);
+                                linkedCount++;
 
-                        var o = new BackupFileInfo
+                                WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{link}} {newFileRelativeName} ", Interlocked.Increment(ref category));
+                            }
+                            else
+                            {
+                                var relFileName = NormalizePathUnix(file.FileName.Replace(_source, null)).TrimStart('/');
+                                using (var fl = file.FileInfo.OpenRead())
+                                    tar.AddFile(relFileName, fl);
+
+                                WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
+                            }
+
+                            var o = new BackupFileInfo
+                            {
+                                Path = newFileRelativeName,
+                                Hash = file.FastHashStr,
+                                Length = file.FileInfo.Length
+                            };
+                            currentBkp.Objects.Add(o);
+                        }
+                        catch (Exception e)
                         {
-                            Path = newFileRelativeName,
-                            Hash = file.FastHashStr,
-                            Length = file.FileInfo.Length
-                        };
-                        currentBkp.Objects.Add(o);
+                            Console.WriteLine(e);
+                        }
                     }
+
+                    created = tar.IsArchiveCreated;
                 }
 
-                if (smallFiles.Count == 0)
-                    File.Delete(tarFilePath);
+                if (created)
+                {
+                    WriteLog("Unpacking small files", Interlocked.Increment(ref category));
+                    _hardLinkHelper.UnpackTar(smallFilesTarPath);
+                }
             }
 
 
-            var processed = 0;
             foreach (var localFileInfo in files)
             {
                 try
@@ -245,7 +257,7 @@ namespace HardLinkBackup
                     if (!Directory.Exists(newDir))
                         Directory.CreateDirectory(newDir);
 
-                    var existingFile = hlp.FindFile(localFileInfo);
+                    var existingFile = findHelper.FindFile(localFileInfo);
 
                     if (existingFile != null)
                     {
@@ -292,12 +304,6 @@ namespace HardLinkBackup
                 }
             }
 
-            if (smallFiles.Count > 0)
-            {
-                WriteLog("Unpacking small files", Interlocked.Increment(ref category));
-                _hardLinkHelper.UnpackTar(tarFilePath);
-            }
-
             WriteLog("Writing hardlinks to target", Interlocked.Increment(ref category));
             _hardLinkHelper.CreateHardLinks();
 
@@ -315,6 +321,49 @@ namespace HardLinkBackup
             }
 
             WriteLog(log, ++category);
+        }
+
+        private void CreateDirectories(List<FileInfoEx> files, string tarPath, ref int category)
+        {
+            var dirList = files
+                .Select(x => x.FileInfo.DirectoryName?.Replace(_source, null))
+                .Where(x => !string.IsNullOrEmpty(x))
+                .Select(x => NormalizePathUnix(x))
+                .Distinct()
+                .ToList();
+
+            WriteLog("Creating directories...", ++category);
+
+            var dirsOrder = dirList.OrderBy(x => x.Split('/').Length).ToList();
+
+            dirList.Clear();
+            while (dirsOrder.Count > 0)
+            {
+                var subDir = dirsOrder[dirsOrder.Count - 1];
+                dirsOrder.RemoveAt(dirsOrder.Count - 1);
+                dirList.Add(subDir);
+
+                for (var i = dirsOrder.Count - 1; i >= 0; i--)
+                {
+                    var dir = dirsOrder[i];
+                    if (subDir.StartsWith(dir + "/"))
+                        dirsOrder.RemoveAt(i);
+                }
+            }
+
+            bool created;
+            using (var tar = new TarGzHelper(tarPath))
+            {
+                foreach (var dir in dirList)
+                {
+                    tar.AddEmptyFolder(dir);
+                }
+
+                created = tar.IsArchiveCreated;
+            }
+
+            if (created)
+                _hardLinkHelper.UnpackTar(tarPath);
         }
 
         private void Validate()

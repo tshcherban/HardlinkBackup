@@ -69,7 +69,7 @@ namespace HardLinkBackup
         public void UnpackTar(string tarFilePath)
         {
             var unixTarFilePath = tarFilePath.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/');
-            var targetDir = unixTarFilePath.Replace(".bkp/files.tar.gz", null).Replace('\\', '/');
+            var targetDir = Path.GetDirectoryName(unixTarFilePath).Replace(".bkp", null).Replace('\\', '/');
 
             var cmd = $"tar -xzf {unixTarFilePath} -C {targetDir}";
             var result = _client.RunCommand(cmd);
@@ -98,11 +98,11 @@ namespace HardLinkBackup
 
                 var commandText = cmdBuilder.ToString();
                 var cmd = _client.RunCommand(commandText);
-                if (cmd.ExitStatus != 0 || !string.IsNullOrEmpty(cmd.Result))
+                if (cmd.ExitStatus != 0 || !string.IsNullOrEmpty(cmd.Error))
                 {
-                    var msg = string.IsNullOrEmpty(cmd.Result)
+                    var msg = string.IsNullOrEmpty(cmd.Error)
                         ? "Ssh command failed with exit code " + cmd.ExitStatus
-                        : cmd.Result;
+                        : cmd.Error;
 
                     throw new Exception(msg);
                 }
