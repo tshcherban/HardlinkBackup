@@ -147,7 +147,12 @@ namespace HardLinkBackup
 
             var findHelper = new SessionFileFindHelper(currentBkp, prevBackupFiles);
 
-            CreateDirectories(files, directoriesTarPath, ref category);
+            CreateDirectories(files, directoriesTarPath, ref category, s =>
+            {
+                var path = NormalizePathWin(s);
+                path = currentBkpDir + path;
+                Directory.CreateDirectory(path);
+            });
 
             WriteLog("Backing up...", ++category);
 
@@ -157,15 +162,17 @@ namespace HardLinkBackup
                 var file = files[index];
                 if (file.FileInfo.Length < 4 * 1024 * 1024 || CompressibleFileExtensions.Contains(file.FileInfo.Extension))
                 {
-                    smallFiles.Add(file);
-                    files.RemoveAt(index);
+                    if (file.FileName.Length < 98)
+                    {
+                        smallFiles.Add(file);
+                        files.RemoveAt(index);
+                    }
                 }
             }
 
             var processed = 0;
 
             ProcessSmallFiles(smallFiles, ref category, smallFilesTarPath, currentBkpDir, findHelper, filesCount, currentBkp, ref linkedCount, ref processed);
-
 
             foreach (var localFileInfo in files)
             {
@@ -335,7 +342,7 @@ namespace HardLinkBackup
             }
         }
 
-        private void CreateDirectories(List<FileInfoEx> files, string tarPath, ref int category)
+        private void CreateDirectories(List<FileInfoEx> files, string tarPath, ref int category, Action<string> createDir)
         {
             var dirList = files
                 .Select(x => x.FileInfo.DirectoryName?.Replace(_source, null))
@@ -368,7 +375,15 @@ namespace HardLinkBackup
             {
                 foreach (var dir in dirList)
                 {
-                    tar.AddEmptyFolder(dir);
+                    if (dir.Length > 98)
+                    {
+                        WriteLog($"'{dir}' too long, creating via smb...", Interlocked.Increment(ref category));
+                        createDir(dir);
+                    }
+                    else
+                    {
+                        tar.AddEmptyFolder(dir);
+                    }
                 }
 
                 created = tar.IsArchiveCreated;
