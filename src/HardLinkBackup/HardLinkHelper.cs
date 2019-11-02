@@ -58,8 +58,8 @@ namespace HardLinkBackup
 
         public void AddHardLinkToQueue(string source, string target)
         {
-            source = source.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/');
-            target = target.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/');
+            source = source.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/').Replace("$", "\\$");
+            target = target.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/').Replace("$", "\\$");
 
             var cmd = $"ln \"{source}\" \"{target}\"";
 

@@ -57,6 +57,7 @@ namespace HardLinkBackup
             ".xml",
             ".txt",
             ".pdb",
+            ".dll",
         };
 
         public async Task DoBackup()
@@ -163,80 +164,7 @@ namespace HardLinkBackup
 
             var processed = 0;
 
-            if (smallFiles.Count > 0)
-            {
-                WriteLog($"Small files hash calculation...", ++category);
-
-                var cnt = smallFiles
-                    .AsParallel()
-                    .Select(x =>
-                    {
-                        try
-                        {
-                            return x.FastHashStr;
-                        }
-                        catch (Exception exception)
-                        {
-                            Console.WriteLine(exception);
-                            return "invalid hash: " + exception.Message;
-                        }
-                    })
-                    .Count(x => x.StartsWith("invalid hash"));
-                if (cnt > 0)
-                    WriteLog($"Found {cnt} invalid records", ++category);
-
-                WriteLog($"{smallFiles.Count} files will be transferred in a batch as tar.gz", ++category);
-
-                bool created;
-                using (var tar = new TarGzHelper(smallFilesTarPath))
-                {
-                    foreach (var file in smallFiles)
-                    {
-                        try
-                        {
-                            var newFile = file.FileName.Replace(_source, currentBkpDir);
-                            var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
-
-                            var existingFile = findHelper.FindFile(file);
-                            if (existingFile != null)
-                            {
-                                _hardLinkHelper.AddHardLinkToQueue(existingFile, newFile);
-                                linkedCount++;
-
-                                WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{link}} {newFileRelativeName} ", Interlocked.Increment(ref category));
-                            }
-                            else
-                            {
-                                var relFileName = NormalizePathUnix(file.FileName.Replace(_source, null)).TrimStart('/');
-                                using (var fl = file.FileInfo.OpenRead())
-                                    tar.AddFile(relFileName, fl);
-
-                                WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
-                            }
-
-                            var o = new BackupFileInfo
-                            {
-                                Path = newFileRelativeName,
-                                Hash = file.FastHashStr,
-                                Length = file.FileInfo.Length
-                            };
-                            currentBkp.Objects.Add(o);
-                        }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine(e);
-                        }
-                    }
-
-                    created = tar.IsArchiveCreated;
-                }
-
-                if (created)
-                {
-                    WriteLog("Unpacking small files", Interlocked.Increment(ref category));
-                    _hardLinkHelper.UnpackTar(smallFilesTarPath);
-                }
-            }
+            ProcessSmallFiles(smallFiles, ref category, smallFilesTarPath, currentBkpDir, findHelper, filesCount, currentBkp, ref linkedCount, ref processed);
 
 
             foreach (var localFileInfo in files)
@@ -327,6 +255,84 @@ namespace HardLinkBackup
             }
 
             WriteLog(log, ++category);
+        }
+
+        private void ProcessSmallFiles(List<FileInfoEx> smallFiles, ref int category, string smallFilesTarPath, string currentBkpDir, SessionFileFindHelper findHelper, int filesCount, BackupInfo currentBkp, ref int linkedCount, ref int processed)
+        {
+            if (smallFiles.Count > 0)
+            {
+                WriteLog($"Small files hash calculation...", ++category);
+
+                var cnt = smallFiles
+                    .AsParallel()
+                    .Select(x =>
+                    {
+                        try
+                        {
+                            return x.FastHashStr;
+                        }
+                        catch (Exception exception)
+                        {
+                            Console.WriteLine(exception);
+                            return "invalid hash: " + exception.Message;
+                        }
+                    })
+                    .Count(x => x.StartsWith("invalid hash"));
+                if (cnt > 0)
+                    WriteLog($"Found {cnt} invalid records", ++category);
+
+                WriteLog($"{smallFiles.Count} files will be transferred in a batch as tar.gz", ++category);
+
+                bool created;
+                using (var tar = new TarGzHelper(smallFilesTarPath))
+                {
+                    foreach (var file in smallFiles)
+                    {
+                        try
+                        {
+                            var newFile = file.FileName.Replace(_source, currentBkpDir);
+                            var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
+
+                            var existingFile = findHelper.FindFile(file);
+                            if (existingFile != null)
+                            {
+                                _hardLinkHelper.AddHardLinkToQueue(existingFile, newFile);
+                                linkedCount++;
+
+                                WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{link}} {newFileRelativeName} ", Interlocked.Increment(ref category));
+                            }
+                            else
+                            {
+                                var relFileName = NormalizePathUnix(file.FileName.Replace(_source, null)).TrimStart('/');
+                                using (var fl = file.FileInfo.OpenRead())
+                                    tar.AddFile(relFileName, fl);
+
+                                WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
+                            }
+
+                            var o = new BackupFileInfo
+                            {
+                                Path = newFileRelativeName,
+                                Hash = file.FastHashStr,
+                                Length = file.FileInfo.Length
+                            };
+                            currentBkp.Objects.Add(o);
+                        }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine(e);
+                        }
+                    }
+
+                    created = tar.IsArchiveCreated;
+                }
+
+                if (created)
+                {
+                    WriteLog("Unpacking small files", Interlocked.Increment(ref category));
+                    _hardLinkHelper.UnpackTar(smallFilesTarPath);
+                }
+            }
         }
 
         private void CreateDirectories(List<FileInfoEx> files, string tarPath, ref int category)
