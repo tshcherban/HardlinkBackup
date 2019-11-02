@@ -24,7 +24,8 @@ namespace Backuper
 
         private static async Task<byte[]> HashFileAsync(string filePath, long fileLength)
         {
-            using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, ReadBufferSize))
+            //using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, ReadBufferSize))
+            using (var fileStream = File.OpenRead(filePath))
             //using (var bufferedStream = new BufferedStream(fileStream, ReadBufferSize))
             {
                 return await XxHash64Callback.ComputeHash(fileStream, ChunkSize, fileLength, (bytes, i) => Task.CompletedTask);

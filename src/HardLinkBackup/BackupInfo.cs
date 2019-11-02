@@ -81,6 +81,17 @@ namespace HardLinkBackup
 
         const string DateFormat = "yyyy-MM-dd_HH:mm:ss";
 
+        public string CreateFolders()
+        {
+            if (!Directory.Exists(AbsolutePath))
+                Directory.CreateDirectory(AbsolutePath);
+
+            var bkpInfoDir = Path.Combine(AbsolutePath, BackupInfoDir);
+            Directory.CreateDirectory(bkpInfoDir);
+
+            return bkpInfoDir;
+        }
+
         public void WriteToDisk()
         {
             if (!Directory.Exists(AbsolutePath))

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using Renci.SshNet;
@@ -11,6 +12,7 @@ namespace HardLinkBackup
         bool CreateHardLink(string source, string target);
         void CreateHardLinks();
         void AddHardLinkToQueue(string source, string target);
+        void UnpackTar(string tarFilePath);
     }
 
     public class WinHardLinkHelper : IHardLinkHelper
@@ -26,6 +28,11 @@ namespace HardLinkBackup
         }
 
         public void AddHardLinkToQueue(string source, string target)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void UnpackTar(string tarFilePath)
         {
             throw new NotImplementedException();
         }
@@ -57,6 +64,19 @@ namespace HardLinkBackup
             var cmd = $"ln \"{source}\" \"{target}\"";
 
             _linkQueue.Add(cmd);
+        }
+
+        public void UnpackTar(string tarFilePath)
+        {
+            var unixTarFilePath = tarFilePath.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/');
+            var targetDir = unixTarFilePath.Replace(".bkp/files.tar.gz", null).Replace('\\', '/');
+
+            var cmd = $"tar -xzf {unixTarFilePath} -C {targetDir}";
+            var result = _client.RunCommand(cmd);
+            if (result.ExitStatus != 0 || !string.IsNullOrEmpty(result.Error))
+                throw new Exception(result.Error);
+
+            File.Delete(tarFilePath);
         }
 
         public void CreateHardLinks()

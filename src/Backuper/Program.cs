@@ -155,14 +155,13 @@ namespace Backuper
                         ? vssHelper.GetSnapshotFilePath(backupParams.Source)
                         : backupParams.Source;
 
-                    Func<string[]> targetFilesEnumerator = () =>
+                    string[] TargetFilesEnumerator()
                     {
                         var cmd = sshClient.RunCommand($"find \"{backupParams.SshRootDir}\" -type f");
                         var result = cmd.Result;
                         var es = cmd.ExitStatus;
 
-                        if (es != 0 || string.IsNullOrEmpty(result))
-                            return new string[0];
+                        if (es != 0 || string.IsNullOrEmpty(result)) return new string[0];
 
                         var files = result.Split(new[] {"\r", "\n", "\r\n"}, StringSplitOptions.RemoveEmptyEntries)
                             .Where(x => !x.EndsWith(".bkp/info.json"))
@@ -170,10 +169,9 @@ namespace Backuper
                             .ToArray();
 
                         return files;
+                    }
 
-                    };
-
-                    var engine = new HardLinkBackupEngine(actualSource, backupParams.Target, true, helper, targetFilesEnumerator);
+                    var engine = new HardLinkBackupEngine(actualSource, backupParams.Target, true, helper, TargetFilesEnumerator);
                     engine.Log += WriteLog;
                     engine.LogExt += WriteLogExt;
                     await engine.DoBackup();
