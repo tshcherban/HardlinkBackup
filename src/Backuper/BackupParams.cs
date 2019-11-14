@@ -2,7 +2,9 @@
 {
     public class BackupParams
     {
-        public string Source { get; set; }
+        public string RootDit { get; set; }
+
+        public string[] Sources { get; set; }
 
         public string Target { get; set; }
 

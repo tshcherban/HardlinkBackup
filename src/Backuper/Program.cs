@@ -13,11 +13,22 @@ namespace Backuper
         private static int? _previousCategory;
         private static string _logFileName;
 
+        private static bool TryGetParameters(string[] args, string name, out string[] value)
+        {
+            value = args.Where(x => x.StartsWith(name)).Select(x=>x.Replace(name, null)).ToArray();
+            return value.Length > 0;
+        }
+
         private static bool TryGetParameter(string[] args, string name, out string value)
         {
             value = null;
             value = args.FirstOrDefault(x => x.StartsWith(name))?.Replace(name, null);
             return !string.IsNullOrEmpty(value);
+        }
+
+        private static string[] GetParametersOrDefault(string[] args, string name)
+        {
+            return TryGetParameters(args, name, out var value) ? value : null;
         }
 
         private static string GetParameterOrDefault(string[] args, string name)
@@ -51,7 +62,7 @@ namespace Backuper
 
             var p = new BackupParams
             {
-                Source = GetParameterOrDefault(args, "-s:"),
+                Sources = GetParametersOrDefault(args, "-s:"),
                 Target = GetParameterOrDefault(args, "-t:"),
                 SshLogin = GetParameterOrDefault(args, "-sl:"),
                 SshPassword = GetParameterOrDefault(args, "-sp:"),
@@ -61,6 +72,18 @@ namespace Backuper
                 LogFile = GetParameterOrDefault(args, "-l:"),
             };
 
+            var root = string.Empty;
+            var spl = p.Sources.Select(x => x.Split('\\')).ToList();
+            for (var i = 0; i < spl.Min(x=>x.Length); ++i)
+            {
+                var difs = spl.Select(x => x[i]).Distinct().ToList();
+                if (difs.Count == 1)
+                    root += difs[0] + "\\";
+                else
+                    break;
+            }
+
+            return;
             await Backup(p);
 
             Console.WriteLine("Done. Press return to exit");
@@ -70,17 +93,17 @@ namespace Backuper
 
         private static async Task Backup(BackupParams backupParams)
         {
-            if (string.IsNullOrEmpty(backupParams.Source))
+            if (backupParams.Sources.Length == 0)
             {
                 Console.WriteLine("Source folder is not specified");
                 return;
             }
 
-            if (!Directory.Exists(backupParams.Source))
+            /*if (!Directory.Exists(backupParams.Source))
             {
                 Console.WriteLine("Source folder does not exist");
                 return;
-            }
+            }*/
 
             if (string.IsNullOrEmpty(backupParams.Target))
             {
@@ -146,13 +169,13 @@ namespace Backuper
 
             try
             {
-                using (var vssHelper = new VssHelper(new DirectoryInfo(backupParams.Source).Root.Name))
+                using (var vssHelper = new VssHelper(new DirectoryInfo(backupParams.RootDit).Root.Name))
                 {
                     Console.WriteLine("Creating VSS snapshot...");
 
                     var actualSource = vssHelper.CreateSnapshot()
-                        ? vssHelper.GetSnapshotFilePath(backupParams.Source)
-                        : backupParams.Source;
+                        ? vssHelper.GetSnapshotFilePath(backupParams.RootDit)
+                        : backupParams.RootDit;
 
                     string[] TargetFilesEnumerator()
                     {
