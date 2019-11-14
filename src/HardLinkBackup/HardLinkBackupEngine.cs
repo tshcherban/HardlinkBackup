@@ -73,6 +73,16 @@ namespace HardLinkBackup
                 .Select(f => new FileInfoEx(f))
                 .ToList();
 
+            var invalidFiles = files
+                .Where(x => x.FileName.Split('\\').Any(y => y.Length > 250))
+                .ToList();
+            if (invalidFiles.Count > 0)
+            {
+                WriteLog($"{invalidFiles.Count} files have paths with part longer than 250. They will not be copied", ++category);
+                foreach (var f in invalidFiles)
+                    files.Remove(f);
+            }
+
             WriteLog("Discovering backups...", ++category);
 
             var newBkpDate = DateTime.Now;
@@ -114,7 +124,7 @@ namespace HardLinkBackup
             var filesExists1 = new HashSet<string>(filesExists, StringComparer.OrdinalIgnoreCase);
 
             var prevBackupFilesRaw = prevBkps
-                .SelectMany(b => b.Objects.Select(fll => new {file = fll, backup = b}))
+                .SelectMany(b => b.Objects.Select(fll => new { file = fll, backup = b }))
                 .Select(x =>
                 {
                     var contains = filesExists1.Contains(NormalizePathWin(x.backup.AbsolutePath + x.file.Path));
