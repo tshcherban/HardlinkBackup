@@ -5,8 +5,6 @@ configuration:
 before_build:
 - cmd: >-
     dir
-    cd src
-    nuget restore
 build:
   parallel: true
   project: src/Backuper.sln
