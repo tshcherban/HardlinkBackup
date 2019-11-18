@@ -88,7 +88,7 @@ namespace HardLinkBackup
             ".log",
         };
 
-        public static IEnumerable<string> GetDirectoryFiles(string rootPath, string patternMatch, SearchOption searchOption)
+        private static IEnumerable<string> GetDirectoryFiles(string rootPath, string patternMatch, SearchOption searchOption)
         {
             var foundFiles = Enumerable.Empty<string>();
 
@@ -96,7 +96,7 @@ namespace HardLinkBackup
             {
                 try
                 {
-                    IEnumerable<string> subDirs = Directory.EnumerateDirectories(rootPath);
+                    var subDirs = Directory.EnumerateDirectories(rootPath);
                     foreach (string dir in subDirs)
                     {
                         foundFiles = foundFiles.Concat(GetDirectoryFiles(dir, patternMatch, searchOption)); // Add files in subdirectories recursively to the list
@@ -247,6 +247,7 @@ namespace HardLinkBackup
                         }
                         else
                         {
+                            WriteLog($"{localFileInfo.RelativePathWin} copy failed", Interlocked.Increment(ref category));
                             System.Diagnostics.Debugger.Break();
                         }
 
@@ -511,7 +512,7 @@ namespace HardLinkBackup
                 throw new InvalidOperationException("Destination directory does not exist");
             }
         }
-
+        /*
         private static void CreatePar(string file, BackupInfo currentBkp)
         {
             var parFile = currentBkp.AbsolutePath + $"\\.bkp\\par{file.Replace(currentBkp.AbsolutePath, null)}.par";
@@ -530,63 +531,6 @@ namespace HardLinkBackup
             proc.WaitForExit();
             var outp = proc.StandardOutput.ReadToEnd();
         }
-    }
-
-    public class BackupFileModel
-    {
-        public BackupFileModel(string fullFileName, string relativeFileName)
-        {
-            if (string.IsNullOrEmpty(fullFileName))
-                throw new Exception("File path can not be empty");
-
-            FileInfo = new FileInfoEx(fullFileName);
-
-            RelativePathWin = PathHelpers.NormalizePathWin(relativeFileName).TrimStart('\\', '/');
-            RelativePathUnix = PathHelpers.NormalizePathUnix(relativeFileName).TrimStart('\\', '/');
-            RelativeDirectoryNameWin = PathHelpers.NormalizePathWin(Path.GetDirectoryName(relativeFileName)).TrimStart('\\', '/');
-            RelativeDirectoryNameUnix = PathHelpers.NormalizePathUnix(Path.GetDirectoryName(relativeFileName)).TrimStart('\\', '/');
-        }
-
-        public string RelativePathWin { get; }
-
-        public string RelativePathUnix { get; }
-
-        public string RelativeDirectoryNameWin { get; }
-
-        public string RelativeDirectoryNameUnix { get; }
-
-        public FileInfoEx FileInfo { get; }
-    }
-
-    public class FilesSource
-    {
-        public FilesSource(string fullPath, string alias)
-        {
-            FullPath = fullPath;
-            Alias = alias;
-        }
-
-        public string FullPath { get; }
-
-        public string Alias { get; }
-    }
-
-    public static class PathHelpers
-    {
-        public static string NormalizePathWin(string path, char separator = '\\')
-        {
-            return path?.Replace('/', separator).Replace('\\', separator);
-        }
-
-        public static string NormalizePathUnix(string path, char separator = '/')
-        {
-            if (string.IsNullOrEmpty(path))
-                return path;
-
-            if ((path.StartsWith(@":\") || path.StartsWith(@":/")) && char.IsLetter(path[0]))
-                throw new Exception("Unix path shouldn't start from windows drive name");
-
-            return path.Replace('\\', separator).Replace('/', separator);
-        }
+        */
     }
 }
