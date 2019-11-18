@@ -8,3 +8,7 @@ build:
   parallel: true
   project: src/Backuper.sln
   verbosity: normal
+before_build:
+  - cmd: >-
+    cd src
+    nuget restore
