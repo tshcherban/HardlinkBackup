@@ -125,10 +125,10 @@ namespace HardLinkBackup
             }
         }
 
-        public BackupFileInfo FindFile(long length, string hash)
+        public BackupFileInfo FindFile(FileInfoEx fInfoEx)
         {
-            if (_filesLookup.TryGetValue(length, out var byHash))
-                return byHash.TryGetValue(hash, out var file) ? file : null;
+            if (_filesLookup.TryGetValue(fInfoEx.FileInfo.Length, out var byHash))
+                return byHash.TryGetValue(fInfoEx.FastHashStr, out var file) ? file : null;
 
             return null;
         }

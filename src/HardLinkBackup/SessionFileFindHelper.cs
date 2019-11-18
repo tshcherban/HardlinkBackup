@@ -26,20 +26,20 @@ namespace HardLinkBackup
                 .ToDictionary(x => x.Key, x => x.GroupBy(y => y.Item1.Hash).ToDictionary(y => y.Key, y => y.First()));
         }
 
-        public string FindFile(FileInfoEx fileInfo)
+        public string FindFile(FileInfoEx fInfoEx)
         {
             var fileFromPrevBackup =
                 _prevBackupFiles
                     .FirstOrDefault(oldFile =>
-                        oldFile.Item1.Length == fileInfo.FileInfo.Length &&
-                        oldFile.Item1.Hash == fileInfo.FastHashStr);
+                        oldFile.Item1.Length == fInfoEx.FileInfo.Length &&
+                        oldFile.Item1.Hash == fInfoEx.FastHashStr);
 
             string existingFile;
             if (fileFromPrevBackup != null)
                 existingFile = fileFromPrevBackup.Item2.AbsolutePath + fileFromPrevBackup.Item1.Path;
             else
             {
-                existingFile = _currentBkp.FindFile(fileInfo.FileInfo.Length, fileInfo.FastHashStr)?.Path;
+                existingFile = _currentBkp.FindFile(fInfoEx)?.Path;
 
                 if (existingFile != null)
                     existingFile = _currentBkp.AbsolutePath + existingFile;
