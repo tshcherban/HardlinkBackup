@@ -4,6 +4,7 @@ configuration:
   - Release
 before_build:
 - cmd: >-
+    dir
     cd src
     nuget restore
 build:
