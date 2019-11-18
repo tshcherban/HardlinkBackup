@@ -9,20 +9,35 @@ namespace HardLinkBackup
     public class BackupInfo
     {
         private const string BackupInfoDir = ".bkp";
-        private const string BackupInfoFile = "info.json";
+        private const string BackupInfoFile = "info.txt";
+        private const string FirstLineBackupDateFormat = "yyyy-MM-dd_HH:mm:ss";
 
-        public List<BackupFileInfo> Objects { get; set; } = new List<BackupFileInfo>();
+        private readonly Dictionary<long, Dictionary<string, BackupFileInfo>> _filesLookup;
+        private readonly List<BackupFileInfo> _files = new List<BackupFileInfo>();
+
+        private string _serviceDir;
+
+        public IReadOnlyList<BackupFileInfo> Files
+        {
+            get { return _files; }
+        }
 
         public DateTime DateTime { get; set; }
 
-        public string AbsolutePath { get; set; }
+        public string AbsolutePath { get; }
+
+        public BackupInfo(string absolutePath)
+        {
+            AbsolutePath = absolutePath;
+            _filesLookup = new Dictionary<long, Dictionary<string, BackupFileInfo>>();
+        }
 
         public void CheckIntegrity()
         {
             if (!Directory.Exists(AbsolutePath))
                 throw new InvalidOperationException("Backup directory not found");
 
-            foreach (var f in Objects)
+            foreach (var f in _files)
             {
                 var fileName = AbsolutePath + f.Path;
                 if (!File.Exists(fileName))
@@ -39,7 +54,7 @@ namespace HardLinkBackup
             var dirs = Directory.EnumerateDirectories(path);
             foreach (var dir in dirs)
             {
-                BackupInfo info = new BackupInfo();
+                BackupInfo info = new BackupInfo(dir);
                 try
                 {
                     var bkpInfoDir = Directory.EnumerateDirectories(dir).FirstOrDefault(d => new DirectoryInfo(d).Name == BackupInfoDir);
@@ -48,16 +63,17 @@ namespace HardLinkBackup
 
                     using (var file = File.OpenText(Path.Combine(bkpInfoDir, BackupInfoFile)))
                     {
-                        if (System.DateTime.TryParseExact(file.ReadLine(), DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                        if (DateTime.TryParseExact(file.ReadLine(), FirstLineBackupDateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
                             info.DateTime = dt;
                         else
                             continue;
 
                         while (!file.EndOfStream)
                         {
-                            var parts = file.ReadLine()?.Split('|');
+                            var line = file.ReadLine();
+                            var parts = line?.Split('|');
                             if (parts == null || parts.Length != 3)
-                                throw null;
+                                throw new Exception($"Failed to parse backup files list. Unknown line '{line}'");
 
                             var fi = new BackupFileInfo
                             {
@@ -65,47 +81,40 @@ namespace HardLinkBackup
                                 Hash = parts[1],
                                 Length = long.Parse(parts[2]),
                             };
-                            info.Objects.Add(fi);
+                            info._files.Add(fi);
                         }
                     }
-
-                    info.AbsolutePath = dir;
                 }
                 catch (Exception)
                 {
                     continue;
                 }
+
                 yield return info;
             }
         }
-
-        const string DateFormat = "yyyy-MM-dd_HH:mm:ss";
 
         public string CreateFolders()
         {
             if (!Directory.Exists(AbsolutePath))
                 Directory.CreateDirectory(AbsolutePath);
 
-            var bkpInfoDir = Path.Combine(AbsolutePath, BackupInfoDir);
-            Directory.CreateDirectory(bkpInfoDir);
+            _serviceDir = Path.Combine(AbsolutePath, BackupInfoDir);
+            Directory.CreateDirectory(_serviceDir);
 
-            return bkpInfoDir;
+            return _serviceDir;
         }
 
         public void WriteToDisk()
         {
-            if (!Directory.Exists(AbsolutePath))
-                Directory.CreateDirectory(AbsolutePath);
+            Directory.CreateDirectory(_serviceDir);
 
-            var bkpInfoDir = Path.Combine(AbsolutePath, BackupInfoDir);
-            Directory.CreateDirectory(bkpInfoDir);
-
-            var bkpInfoFile = Path.Combine(bkpInfoDir, BackupInfoFile);
+            var bkpInfoFile = Path.Combine(_serviceDir, BackupInfoFile);
 
             using (var file = File.CreateText(bkpInfoFile))
             {
-                file.WriteLine(DateTime.ToString(DateFormat));
-                foreach (var o in Objects)
+                file.WriteLine(DateTime.ToString(FirstLineBackupDateFormat));
+                foreach (var o in _files)
                 {
                     file.Write(o.Path);
                     file.Write('|');
@@ -114,6 +123,41 @@ namespace HardLinkBackup
                     file.WriteLine(o.Length);
                 }
             }
+        }
+
+        public BackupFileInfo FindFile(long length, string hash)
+        {
+            if (_filesLookup.TryGetValue(length, out var byHash))
+                return byHash.TryGetValue(hash, out var file) ? file : null;
+
+            return null;
+        }
+
+        public void AddFile(BackupFileInfo fileInfo)
+        {
+            _files.Add(fileInfo);
+            if (fileInfo.IsLink)
+                return;
+
+            if (!_filesLookup.TryGetValue(fileInfo.Length, out var files))
+            {
+                files = new Dictionary<string, BackupFileInfo>();
+                _filesLookup[fileInfo.Length] = files;
+            }
+
+            files[fileInfo.Hash] = fileInfo;
+        }
+
+        public void CreateIncompleteAttribute()
+        {
+            var incompleteAttributeFile = Path.Combine(_serviceDir, "incomplete_backup.txt");
+            File.WriteAllText(incompleteAttributeFile, "This backup is in progress or has been interrupted");
+        }
+
+        public void DeleteIncompleteAttribute()
+        {
+            var incompleteAttributeFile = Path.Combine(_serviceDir, "incomplete_backup.txt");
+            File.Delete(incompleteAttributeFile);
         }
     }
 }

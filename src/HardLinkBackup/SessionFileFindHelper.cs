@@ -14,11 +14,16 @@ namespace HardLinkBackup
     {
         private readonly BackupInfo _currentBkp;
         private readonly List<Tuple<BackupFileInfo, BackupInfo>> _prevBackupFiles;
+        private readonly Dictionary<long, Dictionary<string, Tuple<BackupFileInfo, BackupInfo>>> _prevBackupFilesLookup;
 
         public SessionFileFindHelper(BackupInfo currentBkp, List<Tuple<BackupFileInfo, BackupInfo>> prevBackupFiles)
         {
             _currentBkp = currentBkp;
             _prevBackupFiles = prevBackupFiles;
+
+            _prevBackupFilesLookup = prevBackupFiles
+                .GroupBy(x => x.Item1.Length)
+                .ToDictionary(x => x.Key, x => x.GroupBy(y => y.Item1.Hash).ToDictionary(y => y.Key, y => y.First()));
         }
 
         public string FindFile(FileInfoEx fileInfo)
@@ -34,10 +39,7 @@ namespace HardLinkBackup
                 existingFile = fileFromPrevBackup.Item2.AbsolutePath + fileFromPrevBackup.Item1.Path;
             else
             {
-                existingFile = _currentBkp.Objects
-                    .FirstOrDefault(copied =>
-                        copied.Length == fileInfo.FileInfo.Length &&
-                        copied.Hash == fileInfo.FastHashStr)?.Path;
+                existingFile = _currentBkp.FindFile(fileInfo.FileInfo.Length, fileInfo.FastHashStr)?.Path;
 
                 if (existingFile != null)
                     existingFile = _currentBkp.AbsolutePath + existingFile;

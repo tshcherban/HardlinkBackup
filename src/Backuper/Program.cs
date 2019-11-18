@@ -60,7 +60,7 @@ namespace Backuper
             if (args.Length == 1 && TryGetParameter(args, "-bdf:", out var backupDefinitionFile))
                 args = File.ReadAllLines(backupDefinitionFile);
 
-            var p = new BackupParams
+            var backupParams = new BackupParams
             {
                 Sources = GetParametersOrDefault(args, "-s:"),
                 Target = GetParameterOrDefault(args, "-t:"),
@@ -72,19 +72,26 @@ namespace Backuper
                 LogFile = GetParameterOrDefault(args, "-l:"),
             };
 
-            var root = string.Empty;
-            var spl = p.Sources.Select(x => x.Split('\\')).ToList();
+            var rootDir = string.Empty;
+            var spl = backupParams.Sources.Select(x => x.Split('\\')).ToList();
             for (var i = 0; i < spl.Min(x=>x.Length); ++i)
             {
-                var difs = spl.Select(x => x[i]).Distinct().ToList();
-                if (difs.Count == 1)
-                    root += difs[0] + "\\";
+                var partsFromAllSources = spl.Select(x => x[i]).Distinct().ToList();
+                if (partsFromAllSources.Count == 1)
+                    rootDir += partsFromAllSources[0] + "\\";
                 else
                     break;
             }
 
-            return;
-            await Backup(p);
+            if (string.IsNullOrEmpty(rootDir))
+            {
+                Console.WriteLine("Root directory can not be determined");
+                return;
+            }
+
+            backupParams.RootDit = rootDir;
+
+            await Backup(backupParams);
 
             Console.WriteLine("Done. Press return to exit");
 
@@ -173,7 +180,7 @@ namespace Backuper
                 {
                     Console.WriteLine("Creating VSS snapshot...");
 
-                    var actualSource = vssHelper.CreateSnapshot()
+                    var actualRoot = vssHelper.CreateSnapshot()
                         ? vssHelper.GetSnapshotFilePath(backupParams.RootDit)
                         : backupParams.RootDit;
 
@@ -193,7 +200,7 @@ namespace Backuper
                         return files;
                     }
 
-                    var engine = new HardLinkBackupEngine(actualSource, backupParams.Target, true, helper, TargetFilesEnumerator);
+                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.Target, true, helper, TargetFilesEnumerator);
                     engine.Log += WriteLog;
                     engine.LogExt += WriteLogExt;
                     await engine.DoBackup();

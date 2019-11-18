@@ -7,5 +7,7 @@
         public string Hash { get; set; }
 
         public long Length { get; set; }
+
+        public bool IsLink { get; set; }
     }
 }

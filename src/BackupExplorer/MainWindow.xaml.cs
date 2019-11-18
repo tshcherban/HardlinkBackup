@@ -46,7 +46,7 @@ namespace BackupExplorer
                         bkpDirItem.IsBackup = true;
 
                         object processedFiles;
-                        var files = bkp.Objects;
+                        var files = bkp.Files;
                         /*foreach (var file in files)
                         {
                             var fPath = bkp.AbsolutePath + file.Path;

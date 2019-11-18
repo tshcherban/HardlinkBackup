@@ -81,19 +81,25 @@ namespace HardLinkBackup
 
         public void CreateHardLinks()
         {
-            const int commandSizeLimit = 20000;
+            const int commandSizeLimit = 30000;
 
             var cmdBuilder = new StringBuilder(commandSizeLimit);
 
-            while (_linkQueue.Count > 0)
+            var linkQueue = new Queue<string>(_linkQueue);
+
+            while (linkQueue.Count > 0)
             {
                 cmdBuilder.Clear();
 
-                while (_linkQueue.Count > 0 && cmdBuilder.Length < Math.Max(1, commandSizeLimit - _linkQueue[_linkQueue.Count - 1].Length * 2))
+                var el = linkQueue.Dequeue();
+                while (linkQueue.Count > 0 && cmdBuilder.Length < Math.Max(1, commandSizeLimit - el.Length * 2))
                 {
-                    var f = _linkQueue[_linkQueue.Count - 1];
-                    _linkQueue.RemoveAt(_linkQueue.Count - 1);
-                    cmdBuilder.Append($"{f}\n");
+                    if (el == "ln \"/volume1/share/2019-11-18-182845/programs/FoxitReaderPortable/App/Foxit Reader/Skins/Ribbon/Orange/StartPage/body_bg.jpg\" \"/volume1/share/2019-11-18-182845/programs/FoxitReaderPortable/App/Foxit Reader/Skins/Ribbon/Blue/StartPage/body_bg.jpg\"")
+                    {
+                        var a = DateTime.Now;
+                    }
+                    cmdBuilder.Append($"{el}\n");
+                    el = linkQueue.Dequeue();
                 }
 
                 var commandText = cmdBuilder.ToString();

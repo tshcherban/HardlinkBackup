@@ -28,6 +28,9 @@ namespace HardLinkBackup
 
         private byte[] HashFast()
         {
+            if (FileInfo.Length == 0)
+                return XxHash64Callback.EmptyHash;
+
             return HashHelper.HashFileAsync(FileInfo).Result;
         }
     }
