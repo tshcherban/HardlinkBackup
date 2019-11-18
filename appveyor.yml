@@ -1,2 +1,10 @@
 before_build:
   - nuget restore
+platform: x64
+configuration:
+  - Debug
+  - Release
+build:
+  parallel: true
+  project: src/Backuper.sln
+  verbosity: normal
