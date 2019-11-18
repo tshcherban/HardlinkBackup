@@ -54,14 +54,18 @@ namespace HardLinkBackup
             var dirs = Directory.EnumerateDirectories(path);
             foreach (var dir in dirs)
             {
-                BackupInfo info = new BackupInfo(dir);
+                var info = new BackupInfo(dir);
                 try
                 {
                     var bkpInfoDir = Directory.EnumerateDirectories(dir).FirstOrDefault(d => new DirectoryInfo(d).Name == BackupInfoDir);
                     if (string.IsNullOrEmpty(bkpInfoDir))
                         continue;
 
-                    using (var file = File.OpenText(Path.Combine(bkpInfoDir, BackupInfoFile)))
+                    var bkpInfoFile = Path.Combine(bkpInfoDir, BackupInfoFile);
+                    if (!File.Exists(bkpInfoFile))
+                        continue;
+
+                    using (var file = File.OpenText(bkpInfoFile))
                     {
                         if (DateTime.TryParseExact(file.ReadLine(), FirstLineBackupDateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
                             info.DateTime = dt;

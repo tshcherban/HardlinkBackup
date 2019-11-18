@@ -12,25 +12,37 @@ namespace HardLinkBackup
     {
         private const string BackupFolderNamingDateFormat = "yyyy-MM-dd-HHmmss";
 
+        private static readonly HashSet<string> CompressibleFileExtensions = new HashSet<string>
+        {
+            ".xml",
+            ".txt",
+            ".pdb",
+            ".dll",
+            ".log",
+        };
+
         //private readonly string _rootDir;
         private readonly string _destination;
         private readonly FilesSource[] _sources;
+        private readonly string[] _backupRoots;
         private readonly bool _allowSimultaneousReadWrite;
         private readonly IHardLinkHelper _hardLinkHelper;
-        private readonly Func<string[]> _remoteFilesEnumerator;
+        private readonly Func<string, string[]> _remoteFilesEnumerator;
 
         public event Action<string, int> Log;
 
         public event Action<string> LogExt;
 
-        public HardLinkBackupEngine(string rootDir, string[] sources, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper, Func<string[]> remoteFilesEnumerator)
+        public HardLinkBackupEngine(string rootDir, string[] sources, string[] backupRoots, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper, Func<string, string[]> remoteFilesEnumerator)
         {
             //_rootDir = rootDir.EndsWith(@":\\") ? rootDir : rootDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _destination = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             _sources = GetSources(rootDir, sources);
+            _backupRoots = backupRoots;
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
             _hardLinkHelper = hardLinkHelper;
             _remoteFilesEnumerator = remoteFilesEnumerator;
+
         }
 
         private static FilesSource[] GetSources(string rootDir, string[] sources)
@@ -77,16 +89,6 @@ namespace HardLinkBackup
         {
             LogExt?.Invoke(msg);
         }
-
-
-        private static readonly HashSet<string> CompressibleFileExtensions = new HashSet<string>
-        {
-            ".xml",
-            ".txt",
-            ".pdb",
-            ".dll",
-            ".log",
-        };
 
         private static IEnumerable<string> GetDirectoryFiles(string rootPath, string patternMatch, SearchOption searchOption)
         {
@@ -173,6 +175,11 @@ namespace HardLinkBackup
             var newBkpDate = DateTime.Now;
             var newBkpName = newBkpDate.ToString(BackupFolderNamingDateFormat, CultureInfo.InvariantCulture);
             var prevBkps = BackupInfo.DiscoverBackups(_destination).ToList();
+            if (_backupRoots != null)
+            {
+                foreach (var root in _backupRoots)
+                    prevBkps.AddRange(BackupInfo.DiscoverBackups(root));
+            }
 
             WriteLog($"Found {prevBkps.Count} backups", ++category);
 
@@ -305,44 +312,48 @@ namespace HardLinkBackup
 
             WriteLog("Fast check backups...", ++category);
 
-            string[] filesExists;
-            try
+            var prevBackupFiles = new List<Tuple<BackupFileInfo, BackupInfo>>();
+            foreach (var backup in prevBkps)
             {
-                filesExists = _remoteFilesEnumerator().Select(x => PathHelpers.NormalizePathWin(x)).ToArray();
-            }
-            catch
-            {
-                Log?.Invoke("Failed to enumerate files fast, going slow route...", ++category);
-
-                filesExists = Directory.EnumerateFiles(_destination, "*", SearchOption.AllDirectories).ToArray();
-            }
-
-            var filesExists1 = new HashSet<string>(filesExists, StringComparer.OrdinalIgnoreCase);
-
-            var prevBackupFilesRaw = prevBkps
-                .SelectMany(b => b.Files.Select(fll => new {file = fll, backup = b}))
-                .Select(x =>
+                string[] filesExists;
+                try
                 {
-                    var contains = filesExists1.Contains(PathHelpers.NormalizePathWin(x.backup.AbsolutePath + x.file.Path));
-                    return new
+                    filesExists = _remoteFilesEnumerator(backup.AbsolutePath).Select(x => PathHelpers.NormalizePathWin(x)).ToArray();
+                }
+                catch
+                {
+                    Log?.Invoke("Failed to enumerate files fast, going slow route...", ++category);
+
+                    filesExists = Directory.EnumerateFiles(_destination, "*", SearchOption.AllDirectories).ToArray();
+                }
+
+                var filesExists1 = new HashSet<string>(filesExists, StringComparer.OrdinalIgnoreCase);
+
+                var prevBackupFilesRaw = backup.Files
+                    .Select(x =>
                     {
-                        exists = contains,
-                        finfo = x
-                    };
-                })
-                .ToList();
+                        var fileFullPathWin = PathHelpers.NormalizePathWin(Path.Combine(backup.AbsolutePath, x.Path.TrimStart('\\', '/')));
+                        var contains = filesExists1.Contains(fileFullPathWin);
+                        return new
+                        {
+                            exists = contains,
+                            finfo = x
+                        };
+                    })
+                    .ToList();
 
-            var deletedCount = prevBackupFilesRaw.Count(x => !x.exists);
-            if (deletedCount > 0)
-            {
-                var ress = prevBackupFilesRaw.Where(x => !x.exists).ToList();
-                WriteLog($"Found {deletedCount} invalid records (file does not exist), please run health check command", ++category);
+                var deletedCount = prevBackupFilesRaw.Count(x => !x.exists);
+                if (deletedCount > 0)
+                {
+                    var ress = prevBackupFilesRaw.Where(x => !x.exists).ToList();
+                    WriteLog($"Found {deletedCount} invalid records (file does not exist), please run health check command", ++category);
+                }
+
+                prevBackupFiles.AddRange(
+                    prevBackupFilesRaw
+                        .Where(x => x.exists)
+                        .Select(x => Tuple.Create(x.finfo, backup)));
             }
-
-            var prevBackupFiles = prevBackupFilesRaw
-                .Where(x => x.exists)
-                .Select(x => Tuple.Create(x.finfo.file, x.finfo.backup))
-                .ToList();
 
             return prevBackupFiles;
         }

@@ -45,6 +45,10 @@ namespace Backuper
         // -spp:    <ssh port>
         // -l:      <log>
         // -bdf:    <backup definition file>
+        // -backups:<existing backup path>
+        // -remote-root-unix:
+        // -remote-root-win:
+        // -remote-subdir:
         public static async Task Main(string[] args)
         {
             System.Diagnostics.Debugger.Launch();
@@ -70,6 +74,10 @@ namespace Backuper
                 SshRootDir = GetParameterOrDefault(args, "-sr:"),
                 SshPort = TryGetParameter(args, "-spp:", out var sshPort) ? int.Parse(sshPort) : (int?) null,
                 LogFile = GetParameterOrDefault(args, "-l:"),
+                BackupRoots = GetParametersOrDefault(args, "-backups:"),
+                RemoteRootUnix = GetParameterOrDefault(args, "-remote-root-unix:"),
+                RemoteRootWin = GetParameterOrDefault(args, "-remote-root-win:"),
+                RemoteSubdir = GetParameterOrDefault(args, "-remote-subdir:"),
             };
 
             var rootDir = string.Empty;
@@ -184,23 +192,24 @@ namespace Backuper
                         ? vssHelper.GetSnapshotFilePath(backupParams.RootDit)
                         : backupParams.RootDit;
 
-                    string[] TargetFilesEnumerator()
+                    string[] TargetFilesEnumerator(string backupPathWin)
                     {
-                        var cmd = sshClient.RunCommand($"find \"{backupParams.SshRootDir}\" -type f");
+                        var backupPathUnix = PathHelpers.NormalizePathUnix(backupPathWin.Replace(backupParams.RemoteRootWin, backupParams.RemoteRootUnix));
+                        var cmd = sshClient.RunCommand($"find \"{backupPathUnix}\" -type f");
                         var result = cmd.Result;
                         var es = cmd.ExitStatus;
 
                         if (es != 0 || string.IsNullOrEmpty(result)) return new string[0];
 
                         var files = result.Split(new[] {"\r", "\n", "\r\n"}, StringSplitOptions.RemoveEmptyEntries)
-                            .Where(x => !x.EndsWith(".bkp/info.json"))
+                            .Where(x => !x.EndsWith(".bkp/info.txt"))
                             .Select(x => x.Replace(backupParams.SshRootDir, backupParams.Target))
                             .ToArray();
 
                         return files;
                     }
 
-                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.Target, true, helper, TargetFilesEnumerator);
+                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.BackupRoots, backupParams.Target, true, helper, TargetFilesEnumerator);
                     engine.Log += WriteLog;
                     engine.LogExt += WriteLogExt;
                     await engine.DoBackup();

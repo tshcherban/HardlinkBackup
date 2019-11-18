@@ -31,5 +31,10 @@
                        SshPort.HasValue;
             }
         }
+
+        public string[] BackupRoots { get; set; }
+        public string RemoteRootUnix { get; set; }
+        public string RemoteRootWin { get; set; }
+        public string RemoteSubdir { get; set; }
     }
 }
