@@ -69,12 +69,19 @@ namespace HardLinkBackup
         public void UnpackTar(string tarFilePath)
         {
             var unixTarFilePath = tarFilePath.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/');
-            var targetDir = Path.GetDirectoryName(unixTarFilePath).Replace(".bkp", null).Replace('\\', '/');
+            var directoryName = Path.GetDirectoryName(unixTarFilePath);
+            if (string.IsNullOrEmpty(directoryName))
+                throw new Exception($"Failed to get directory name for {unixTarFilePath}");
+
+            var targetDir = directoryName.Replace(".bkp", null).Replace('\\', '/');
 
             var cmd = $"tar -xzf {unixTarFilePath} -C {targetDir}";
             var result = _client.RunCommand(cmd);
             if (result.ExitStatus != 0 || !string.IsNullOrEmpty(result.Error))
                 throw new Exception(result.Error);
+
+            if (!string.IsNullOrEmpty(result.Result))
+                throw new Exception($"Unexpected command result:\r\n{result.Result}");
 
             File.Delete(tarFilePath);
         }
@@ -91,16 +98,12 @@ namespace HardLinkBackup
             {
                 cmdBuilder.Clear();
 
-                var el = linkQueue.Dequeue();
-                while (linkQueue.Count > 0 && cmdBuilder.Length < Math.Max(1, commandSizeLimit - el.Length * 2))
+                string linkCommand;
+                do
                 {
-                    if (el == "ln \"/volume1/share/2019-11-18-182845/programs/FoxitReaderPortable/App/Foxit Reader/Skins/Ribbon/Orange/StartPage/body_bg.jpg\" \"/volume1/share/2019-11-18-182845/programs/FoxitReaderPortable/App/Foxit Reader/Skins/Ribbon/Blue/StartPage/body_bg.jpg\"")
-                    {
-                        var a = DateTime.Now;
-                    }
-                    cmdBuilder.Append($"{el}\n");
-                    el = linkQueue.Dequeue();
-                }
+                    linkCommand = linkQueue.Dequeue();
+                    cmdBuilder.Append($"{linkCommand}\n");
+                } while (linkQueue.Count > 0 && cmdBuilder.Length < Math.Max(1, commandSizeLimit - linkCommand.Length * 2));
 
                 var commandText = cmdBuilder.ToString();
                 var cmd = _client.RunCommand(commandText);
@@ -112,6 +115,9 @@ namespace HardLinkBackup
 
                     throw new Exception(msg);
                 }
+
+                if (!string.IsNullOrEmpty(cmd.Result))
+                    throw new Exception($"Unexpected command result:\r\n{cmd.Result}");
             }
         }
 
