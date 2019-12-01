@@ -408,12 +408,15 @@ namespace HardLinkBackup
 
             bool created;
             var tmpTarPath = smallFilesTarPath + ".tmp";
+            var copiedCountLocal = 0;
             using (var tar = new TarGzHelper(tmpTarPath))
             {
                 foreach (var file in smallFiles)
                 {
                     try
                     {
+                        var processedLocal = Interlocked.Increment(ref processed);
+
                         var newFile = Path.Combine(currentBkpDir, file.RelativePathWin);
                         var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
 
@@ -422,16 +425,15 @@ namespace HardLinkBackup
                         {
                             _hardLinkHelper.AddHardLinkToQueue(existingFile, newFile);
                             linkedCount++;
-
-                            WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{link}} {newFileRelativeName} ", Interlocked.Increment(ref category));
+                            WriteLog($"[{processedLocal} of {filesCount}] {{link}} {newFileRelativeName} to {existingFile}", Interlocked.Increment(ref category));
                         }
                         else
                         {
                             var relFileName = file.RelativePathUnix;
                             using (var fl = file.FileInfo.FileInfo.OpenRead())
                                 tar.AddFile(relFileName, fl);
-
-                            WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
+                            copiedCountLocal++;
+                            WriteLog($"[{processedLocal} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
                         }
 
                         var o = new BackupFileInfo
@@ -466,7 +468,7 @@ namespace HardLinkBackup
 
                 sw.Stop();
 
-                WriteLog($"{smallFiles.Count} files archived and transferred in {tarAndSendDuration:g} and unpacked in {sw.Elapsed:g}", ++category);
+                WriteLog($"{copiedCountLocal} files archived and transferred in {tarAndSendDuration:g} and unpacked in {sw.Elapsed:g}", ++category);
             }
         }
 

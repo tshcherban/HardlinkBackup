@@ -149,7 +149,8 @@ namespace HardLinkBackup
                 _filesLookup[fileInfo.Length] = files;
             }
 
-            files[fileInfo.Hash] = fileInfo;
+            if(!files.ContainsKey(fileInfo.Hash))
+                files[fileInfo.Hash] = fileInfo;
         }
 
         public void CreateIncompleteAttribute()
