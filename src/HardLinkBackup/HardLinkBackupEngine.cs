@@ -392,6 +392,8 @@ namespace HardLinkBackup
                 {
                     try
                     {
+                        var processedLocal = Interlocked.Increment(ref processed);
+
                         var newFileWin = Path.Combine(currentBkpDir, file.RelativePathWin);
                         var newFileRelativeName = newFileWin.Replace(currentBkpDir, string.Empty);
 
@@ -400,7 +402,7 @@ namespace HardLinkBackup
                         {
                             _hardLinkHelper.AddHardLinkToQueue(existingFileWin, newFileWin);
                             linkedCount++;
-                            WriteLog($"[{processedLocal} of {filesCount}] {{link}} {newFileRelativeName} to {existingFile}", Interlocked.Increment(ref category));
+                            WriteLog($"[{processedLocal} of {filesCount}] {{link}} {newFileRelativeName} to {existingFileWin}", Interlocked.Increment(ref category));
                         }
                         else
                         {
@@ -411,7 +413,8 @@ namespace HardLinkBackup
                                 ++archivedCount;
                             }
 
-                            WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
+                            
+                            WriteLog($"[{processedLocal} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
                         }
 
                         var o = new BackupFileInfo
