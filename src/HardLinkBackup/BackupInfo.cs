@@ -86,7 +86,7 @@ namespace HardLinkBackup
                         if (headerParts.Length > 2)
                             continue;
 
-                        info.AttributesAvailable = headerParts[1] == "CM";
+                        info.AttributesAvailable = headerParts.Length == 2 && headerParts[1] == "CM";
 
                         while (!file.EndOfStream)
                         {
