@@ -31,24 +31,27 @@ namespace Backuper
             return TryGetParameters(args, name, out var value) ? value : null;
         }
 
+        private static bool HasSingleParameters(string[] args, string name)
+        {
+            return args.SingleOrDefault(x => x == name) != null;
+        }
+
         private static string GetParameterOrDefault(string[] args, string name)
         {
             return TryGetParameter(args, name, out var value) ? value : null;
         }
 
-        // -s:      <source>
-        // -t:      <target>
-        // -sl:     <ssh login>
-        // -sp:     <ssh password>
-        // -sr:     <ssh root dir>
-        // -sh:     <ssh host>
-        // -spp:    <ssh port>
-        // -l:      <log>
-        // -bdf:    <backup definition file>
-        // -backups:<existing backup path>
+        // -bdf:                    <backup definition file>
+        // -source:                 <source>
+        // -ssh-login:              <ssh login>
+        // -ssh-password:           <ssh password>
+        // -ssh-host:               <ssh host>
+        // -ssh-port:               <ssh port>
+        // -l:                      <log>
+        // -backups-win:            <existing backup path>
         // -remote-root-unix:
         // -remote-root-win:
-        // -remote-subdir:
+        // -fast-mode
         public static async Task Main(string[] args)
         {
             System.Diagnostics.Debugger.Launch();
@@ -66,18 +69,16 @@ namespace Backuper
 
             var backupParams = new BackupParams
             {
-                Sources = GetParametersOrDefault(args, "-s:"),
-                Target = GetParameterOrDefault(args, "-t:"),
-                SshLogin = GetParameterOrDefault(args, "-sl:"),
-                SshPassword = GetParameterOrDefault(args, "-sp:"),
-                SshHost = GetParameterOrDefault(args, "-sh:"),
-                SshRootDir = GetParameterOrDefault(args, "-sr:"),
-                SshPort = TryGetParameter(args, "-spp:", out var sshPort) ? int.Parse(sshPort) : (int?) null,
+                Sources = GetParametersOrDefault(args, "-source:"),
+                SshLogin = GetParameterOrDefault(args, "-ssh-login:"),
+                SshPassword = GetParameterOrDefault(args, "-ssh-password:"),
+                SshHost = GetParameterOrDefault(args, "-ssh-host:"),
+                SshPort = TryGetParameter(args, "-ssh-port:", out var sshPort) ? int.Parse(sshPort) : (int?) null,
                 LogFile = GetParameterOrDefault(args, "-l:"),
                 BackupRoots = GetParametersOrDefault(args, "-backups:"),
                 RemoteRootUnix = GetParameterOrDefault(args, "-remote-root-unix:"),
                 RemoteRootWin = GetParameterOrDefault(args, "-remote-root-win:"),
-                RemoteSubdir = GetParameterOrDefault(args, "-remote-subdir:"),
+                FastMode = HasSingleParameters(args, "-fast-mode"),
             };
 
             var rootDir = string.Empty;
@@ -120,7 +121,8 @@ namespace Backuper
                 return;
             }*/
 
-            if (string.IsNullOrEmpty(backupParams.Target))
+            var targetWin = backupParams.RemoteRootWin;
+            if (string.IsNullOrEmpty(targetWin))
             {
                 Console.WriteLine("Target folder is not specified");
                 return;
@@ -145,14 +147,14 @@ namespace Backuper
                 sshClient = new SshClient(ci);
                 sshClient.Connect();
 
-                hardLinkHelper = new NetShareSshHardLinkHelper(backupParams.Target, backupParams.SshRootDir, sshClient);
+                hardLinkHelper = new NetShareSshHardLinkHelper(backupParams.RemoteRootWin, backupParams.RemoteRootUnix, sshClient);
                 networkConnection = new NetworkConnection($@"\\{backupParams.SshHost}", new NetworkCredential(backupParams.SshLogin, backupParams.SshPassword));
             }
 
             using (networkConnection)
             using (sshClient ?? Helpers.GetDummyDisposable())
             {
-                if (!Directory.Exists(backupParams.Target))
+                if (!Directory.Exists(targetWin))
                 {
                     Console.WriteLine("Target folder does not exist");
                     return;
@@ -160,7 +162,7 @@ namespace Backuper
 
                 try
                 {
-                    var testFile = Path.Combine(backupParams.Target, "write_access_test.txt");
+                    var testFile = Path.Combine(targetWin, "write_access_test.txt");
                     if (File.Exists(testFile))
                         File.Delete(testFile);
 
@@ -203,13 +205,13 @@ namespace Backuper
 
                         var files = result.Split(new[] {"\r", "\n", "\r\n"}, StringSplitOptions.RemoveEmptyEntries)
                             .Where(x => !x.EndsWith(".bkp/info.txt"))
-                            .Select(x => x.Replace(backupParams.SshRootDir, backupParams.Target))
+                            .Select(x => PathHelpers.NormalizePathWin(x.Replace(backupParams.RemoteRootUnix, backupParams.RemoteRootWin)))
                             .ToArray();
 
                         return files;
                     }
 
-                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.BackupRoots, backupParams.Target, true, helper, TargetFilesEnumerator);
+                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.BackupRoots, backupParams.RemoteRootWin, true, helper, TargetFilesEnumerator);
                     engine.Log += WriteLog;
                     engine.LogExt += WriteLogExt;
                     await engine.DoBackup();

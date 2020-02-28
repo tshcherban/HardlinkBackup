@@ -56,10 +56,10 @@ namespace HardLinkBackup
             _linkQueue = new List<string>();
         }
 
-        public void AddHardLinkToQueue(string source, string target)
+        public void AddHardLinkToQueue(string sourceWin, string targetWin)
         {
-            source = source.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/').Replace("$", "\\$");
-            target = target.Replace(_rootDirToReplace, _realRootDir).Replace('\\', '/').Replace("$", "\\$");
+            var source = PathHelpers.NormalizePathUnix(sourceWin.Replace(_rootDirToReplace, _realRootDir)).Replace("$", "\\$");
+            var target = PathHelpers.NormalizePathUnix(targetWin.Replace(_rootDirToReplace, _realRootDir)).Replace("$", "\\$");
 
             var cmd = $"ln \"{source}\" \"{target}\"";
 
@@ -73,7 +73,7 @@ namespace HardLinkBackup
             if (string.IsNullOrEmpty(directoryName))
                 throw new Exception($"Failed to get directory name for {unixTarFilePath}");
 
-            var targetDir = directoryName.Replace(".bkp", null).Replace('\\', '/');
+            var targetDir = PathHelpers.NormalizePathUnix(directoryName).Replace(".bkp", null);
 
             var cmd = $"tar -xzf {unixTarFilePath} -C {targetDir}";
             var result = _client.RunCommand(cmd);

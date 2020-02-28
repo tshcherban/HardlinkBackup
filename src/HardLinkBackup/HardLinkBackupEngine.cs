@@ -42,7 +42,6 @@ namespace HardLinkBackup
             _allowSimultaneousReadWrite = allowSimultaneousReadWrite;
             _hardLinkHelper = hardLinkHelper;
             _remoteFilesEnumerator = remoteFilesEnumerator;
-
         }
 
         private static FilesSource[] GetSources(string rootDir, string[] sources)
@@ -90,33 +89,6 @@ namespace HardLinkBackup
             LogExt?.Invoke(msg);
         }
 
-        private static IEnumerable<string> GetDirectoryFiles(string rootPath, string patternMatch, SearchOption searchOption)
-        {
-            var foundFiles = Enumerable.Empty<string>();
-
-            if (searchOption == SearchOption.AllDirectories)
-            {
-                try
-                {
-                    var subDirs = Directory.EnumerateDirectories(rootPath);
-                    foreach (string dir in subDirs)
-                    {
-                        foundFiles = foundFiles.Concat(GetDirectoryFiles(dir, patternMatch, searchOption)); // Add files in subdirectories recursively to the list
-                    }
-                }
-                catch (UnauthorizedAccessException) { }
-                catch (PathTooLongException) {}
-            }
-
-            try
-            {
-                foundFiles = foundFiles.Concat(Directory.EnumerateFiles(rootPath, patternMatch)); // Add files from the current directory
-            }
-            catch (UnauthorizedAccessException) { }
-
-            return foundFiles;
-        }
-
         private List<BackupFileModel> GetFilesToBackup(ref int category)
         {
             WriteLog("Enumerating files...", ++category);
@@ -125,7 +97,7 @@ namespace HardLinkBackup
 
             foreach (var src in _sources)
             {
-                var fil = GetDirectoryFiles(src.FullPath, "*", SearchOption.AllDirectories)
+                var fil = PathHelpers.GetDirectoryFiles(src.FullPath, "*", SearchOption.AllDirectories)
                     .Select(fullFileName =>
                     {
                         try
@@ -136,7 +108,7 @@ namespace HardLinkBackup
                         }
                         catch (Exception e)
                         {
-                            Console.WriteLine(e);
+                            Console.WriteLine($"Failed to access file {fullFileName}: {e.Message} ({e.GetType().Name})");
                             return null;
                         }
                     })
@@ -154,7 +126,10 @@ namespace HardLinkBackup
             {
                 WriteLog($"{invalidFiles.Count} files have paths with part longer than 250. They will not be copied", ++category);
                 foreach (var f in invalidFiles)
+                {
+                    WriteLog(f.RelativePathWin, ++category);
                     files.Remove(f);
+                }
             }
 
             return files;
@@ -318,7 +293,7 @@ namespace HardLinkBackup
                 string[] filesExists;
                 try
                 {
-                    filesExists = _remoteFilesEnumerator(backup.AbsolutePath).Select(x => PathHelpers.NormalizePathWin(x)).ToArray();
+                    filesExists = _remoteFilesEnumerator(backup.AbsolutePath).ToArray();
                 }
                 catch
                 {
@@ -345,8 +320,10 @@ namespace HardLinkBackup
                 var deletedCount = prevBackupFilesRaw.Count(x => !x.exists);
                 if (deletedCount > 0)
                 {
-                    var ress = prevBackupFilesRaw.Where(x => !x.exists).ToList();
+                    var deleted = prevBackupFilesRaw.Where(x => !x.exists).ToList();
                     WriteLog($"Found {deletedCount} invalid records (file does not exist), please run health check command", ++category);
+                    foreach (var file in deleted)
+                        WriteLog(file.finfo.Path, ++category);
                 }
 
                 prevBackupFiles.AddRange(
@@ -408,19 +385,20 @@ namespace HardLinkBackup
 
             bool created;
             var tmpTarPath = smallFilesTarPath + ".tmp";
+            var archivedCount = 0;
             using (var tar = new TarGzHelper(tmpTarPath))
             {
                 foreach (var file in smallFiles)
                 {
                     try
                     {
-                        var newFile = Path.Combine(currentBkpDir, file.RelativePathWin);
-                        var newFileRelativeName = newFile.Replace(currentBkpDir, string.Empty);
+                        var newFileWin = Path.Combine(currentBkpDir, file.RelativePathWin);
+                        var newFileRelativeName = newFileWin.Replace(currentBkpDir, string.Empty);
 
-                        var existingFile = findHelper.FindFile(file.FileInfo);
-                        if (existingFile != null)
+                        var existingFileWin = findHelper.FindFile(file.FileInfo);
+                        if (existingFileWin != null)
                         {
-                            _hardLinkHelper.AddHardLinkToQueue(existingFile, newFile);
+                            _hardLinkHelper.AddHardLinkToQueue(existingFileWin, newFileWin);
                             linkedCount++;
 
                             WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{link}} {newFileRelativeName} ", Interlocked.Increment(ref category));
@@ -429,7 +407,10 @@ namespace HardLinkBackup
                         {
                             var relFileName = file.RelativePathUnix;
                             using (var fl = file.FileInfo.FileInfo.OpenRead())
+                            {
                                 tar.AddFile(relFileName, fl);
+                                ++archivedCount;
+                            }
 
                             WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
                         }
@@ -439,7 +420,7 @@ namespace HardLinkBackup
                             Path = newFileRelativeName,
                             Hash = file.FileInfo.FastHashStr,
                             Length = file.FileInfo.FileInfo.Length,
-                            IsLink = existingFile != null,
+                            IsLink = existingFileWin != null,
                         };
                         currentBkp.AddFile(o);
                     }
@@ -461,12 +442,13 @@ namespace HardLinkBackup
                 WriteLog("Unpacking small files", Interlocked.Increment(ref category));
 
                 sw = System.Diagnostics.Stopwatch.StartNew();
+
                 File.Move(tmpTarPath, smallFilesTarPath);
                 _hardLinkHelper.UnpackTar(smallFilesTarPath);
 
                 sw.Stop();
 
-                WriteLog($"{smallFiles.Count} files archived and transferred in {tarAndSendDuration:g} and unpacked in {sw.Elapsed:g}", ++category);
+                WriteLog($"{archivedCount} files archived and transferred in {tarAndSendDuration:g} and unpacked in {sw.Elapsed:g}", ++category);
             }
         }
 
