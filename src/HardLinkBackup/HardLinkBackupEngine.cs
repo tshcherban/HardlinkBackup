@@ -400,8 +400,7 @@ namespace HardLinkBackup
                         {
                             _hardLinkHelper.AddHardLinkToQueue(existingFileWin, newFileWin);
                             linkedCount++;
-
-                            WriteLog($"[{Interlocked.Increment(ref processed)} of {filesCount}] {{link}} {newFileRelativeName} ", Interlocked.Increment(ref category));
+                            WriteLog($"[{processedLocal} of {filesCount}] {{link}} {newFileRelativeName} to {existingFile}", Interlocked.Increment(ref category));
                         }
                         else
                         {

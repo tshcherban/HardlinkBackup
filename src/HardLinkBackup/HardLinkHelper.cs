@@ -81,6 +81,9 @@ namespace HardLinkBackup
                 throw new Exception(result.Error);
 
             if (!string.IsNullOrEmpty(result.Result))
+                File.AppendAllText("tb1.unpacktar.txt", "unexpected result:\r\n" + result.Result);
+
+            if (!string.IsNullOrEmpty(result.Result))
                 throw new Exception($"Unexpected command result:\r\n{result.Result}");
 
             File.Delete(tarFilePath);
@@ -115,6 +118,8 @@ namespace HardLinkBackup
 
                     throw new Exception(msg);
                 }
+                if (!string.IsNullOrEmpty(cmd.Result))
+                    File.AppendAllText("tb1.hardlink exec result.txt", "unexpected result\r\n"+ cmd.Result);
 
                 if (!string.IsNullOrEmpty(cmd.Result))
                     throw new Exception($"Unexpected command result:\r\n{cmd.Result}");
