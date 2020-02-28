@@ -205,7 +205,7 @@ namespace HardLinkBackup
                     if (!Directory.Exists(newDir))
                         Directory.CreateDirectory(newDir);
 
-                    var existingFile = findHelper.FindFile(localFileInfo.FileInfo);
+                    var existingFile = findHelper.FindByLengthAndHash(localFileInfo.FileInfo);
 
                     if (existingFile != null)
                     {
@@ -397,23 +397,22 @@ namespace HardLinkBackup
                         var newFileWin = Path.Combine(currentBkpDir, file.RelativePathWin);
                         var newFileRelativeName = newFileWin.Replace(currentBkpDir, string.Empty);
 
-                        var existingFileWin = findHelper.FindFile(file.FileInfo);
+                        var existingFileWin = findHelper.FindByLengthAndHash(file.FileInfo);
                         if (existingFileWin != null)
                         {
                             _hardLinkHelper.AddHardLinkToQueue(existingFileWin, newFileWin);
                             linkedCount++;
-                            WriteLog($"[{processedLocal} of {filesCount}] {{link}} {newFileRelativeName} to {existingFileWin}", Interlocked.Increment(ref category));
+                            //WriteLog($"[{processedLocal} of {filesCount}] {{link}} {newFileRelativeName} to {existingFileWin}", Interlocked.Increment(ref category));
                         }
                         else
                         {
                             var relFileName = file.RelativePathUnix;
                             using (var fl = file.FileInfo.FileInfo.OpenRead())
                             {
-                                tar.AddFile(relFileName, fl);
+                                //tar.AddFile(relFileName, fl);
                                 ++archivedCount;
                             }
 
-                            
                             WriteLog($"[{processedLocal} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref category));
                         }
 
