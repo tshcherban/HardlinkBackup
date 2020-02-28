@@ -402,14 +402,14 @@ namespace HardLinkBackup
                         {
                             _hardLinkHelper.AddHardLinkToQueue(existingFileWin, newFileWin);
                             linkedCount++;
-                            //WriteLog($"[{processedLocal} of {filesCount}] {{link}} {newFileRelativeName} to {existingFileWin}", Interlocked.Increment(ref category));
+                            WriteLog($"[{processedLocal} of {filesCount}] {{link}} {newFileRelativeName} to {existingFileWin}", Interlocked.Increment(ref category));
                         }
                         else
                         {
                             var relFileName = file.RelativePathUnix;
                             using (var fl = file.FileInfo.FileInfo.OpenRead())
                             {
-                                //tar.AddFile(relFileName, fl);
+                                tar.AddFile(relFileName, fl);
                                 ++archivedCount;
                             }
 
