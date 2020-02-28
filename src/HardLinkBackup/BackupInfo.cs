@@ -10,7 +10,7 @@ namespace HardLinkBackup
     {
         private const string BackupInfoDir = ".bkp";
         private const string BackupInfoFile = "info.txt";
-        private const string FirstLineBackupDateFormat = "yyyy-MM-dd_HH:mm:ss";
+        private const string DateSerializationFormat = "yyyy-MM-dd_HH:mm:ss";
 
         private readonly Dictionary<long, Dictionary<string, BackupFileInfo>> _filesLookup;
         private readonly List<BackupFileInfo> _files = new List<BackupFileInfo>();
@@ -25,6 +25,8 @@ namespace HardLinkBackup
         public DateTime DateTime { get; set; }
 
         public string AbsolutePath { get; }
+
+        public bool AttributesAvailable { get; set; }
 
         public BackupInfo(string absolutePath)
         {
@@ -67,17 +69,34 @@ namespace HardLinkBackup
 
                     using (var file = File.OpenText(bkpInfoFile))
                     {
-                        if (DateTime.TryParseExact(file.ReadLine(), FirstLineBackupDateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                        var headerRaw = file.ReadLine();
+                        if (string.IsNullOrEmpty(headerRaw))
+                            continue;
+
+                        var headerParts = headerRaw.Contains("|") ? headerRaw.Split('|') : new[] {headerRaw};
+
+                        if (headerParts.Length == 0)
+                            continue;
+
+                        if (DateTime.TryParseExact(headerParts[0], DateSerializationFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
                             info.DateTime = dt;
                         else
                             continue;
+
+                        if (headerParts.Length > 2)
+                            continue;
+
+                        info.AttributesAvailable = headerParts[1] == "CM";
 
                         while (!file.EndOfStream)
                         {
                             var line = file.ReadLine();
                             var parts = line?.Split('|');
-                            if (parts == null || parts.Length != 3)
-                                throw new Exception($"Failed to parse backup files list. Unknown line '{line}'");
+                            if (parts == null)
+                                throw new Exception("Failed to parse backup files list. Empty file line");
+
+                            if (parts.Length != 3 && parts.Length != 5)
+                                throw new Exception($"Failed to parse backup files list. Unknown file line '{line}'");
 
                             var fi = new BackupFileInfo
                             {
@@ -85,6 +104,13 @@ namespace HardLinkBackup
                                 Hash = parts[1],
                                 Length = long.Parse(parts[2]),
                             };
+
+                            if (parts.Length == 5)
+                            {
+                                fi.Created = DateTime.ParseExact(parts[3], DateSerializationFormat, CultureInfo.InvariantCulture, DateTimeStyles.None);
+                                fi.Modified = DateTime.ParseExact(parts[4], DateSerializationFormat, CultureInfo.InvariantCulture, DateTimeStyles.None);
+                            }
+
                             info._files.Add(fi);
                         }
                     }
@@ -117,7 +143,7 @@ namespace HardLinkBackup
 
             using (var file = File.CreateText(bkpInfoFile))
             {
-                file.WriteLine(DateTime.ToString(FirstLineBackupDateFormat));
+                file.WriteLine($"{DateTime.ToString(DateSerializationFormat)}|CM");
                 foreach (var o in _files)
                 {
                     file.Write(o.Path);
@@ -125,6 +151,10 @@ namespace HardLinkBackup
                     file.Write(o.Hash);
                     file.Write('|');
                     file.WriteLine(o.Length);
+                    file.Write('|');
+                    file.Write(o.Created);
+                    file.Write('|');
+                    file.Write(o.Modified);
                 }
             }
         }

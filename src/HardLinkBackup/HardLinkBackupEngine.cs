@@ -163,6 +163,7 @@ namespace HardLinkBackup
             var currentBkp = new BackupInfo(currentBkpDir)
             {
                 DateTime = newBkpDate,
+                AttributesAvailable = true,
             };
 
             var prevBackupFiles = GetFilesFromPrevBackups(prevBkps, ref category);
@@ -178,11 +179,57 @@ namespace HardLinkBackup
 
             var findHelper = new SessionFileFindHelper(currentBkp, prevBackupFiles);
 
-            CreateDirectories(localFiles, directoriesTarPath, ref category);
-
             WriteLog("Backing up...", ++category);
 
             var processed = 0;
+
+
+
+            { // collect changes
+                var byLength = prevBackupFiles
+                    .GroupBy(x => x.Item1.Hash)
+                    .SelectMany(x => x)
+                    .GroupBy(x => x.Item1.Length)
+                    .ToDictionary(x => x.Key, x => x.ToList());
+
+                var lengthMatch = 0;
+                var lengthFailMatch = 0;
+                var lengthMismatch = 0;
+                var hashMatch = 0;
+                var fails = 0;
+                foreach (var localFileInfo in localFiles)
+                {
+                    if (byLength.TryGetValue(localFileInfo.FileInfo.FileInfo.Length, out var files))
+                    {
+                        lengthMatch++;
+
+                        try
+                        {
+                            var backupFile = files.FirstOrDefault(x => x.Item1.Hash == localFileInfo.FileInfo.FastHashStr);
+                            if (backupFile == null)
+                            {
+                                lengthFailMatch++;
+                            }
+                            else
+                                hashMatch++;
+                        }
+                        catch
+                        {
+                            fails++;
+                        }
+                    }
+                    else
+                    {
+                        lengthMismatch++;
+                    }
+                }
+
+                WriteLog($"match: {lengthMatch}; mismatch: {lengthMismatch}; fail match: {lengthFailMatch}; hash: {hashMatch}; fails: {fails}", Interlocked.Increment(ref category));
+            }
+
+            throw null;
+
+            CreateDirectories(localFiles, directoriesTarPath, ref category);
 
             var smallFiles = GetFilesForCompression(localFiles);
             ProcessSmallFiles(smallFiles, ref category, smallFilesTarPath, currentBkpDir, findHelper, filesCount, currentBkp, ref linkedCount, ref processed);

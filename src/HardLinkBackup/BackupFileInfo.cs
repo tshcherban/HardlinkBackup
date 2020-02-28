@@ -1,4 +1,6 @@
-﻿namespace HardLinkBackup
+﻿using System;
+
+namespace HardLinkBackup
 {
     public class BackupFileInfo
     {
@@ -8,6 +10,13 @@
 
         public long Length { get; set; }
 
+        public DateTime Created { get; set; }
+
+        public DateTime Modified { get; set; }
+
+        /// <summary>
+        /// Runtime only property, always false if read from existing backup
+        /// </summary>
         public bool IsLink { get; set; }
     }
 }

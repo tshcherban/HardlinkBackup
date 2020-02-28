@@ -13,14 +13,12 @@ namespace HardLinkBackup
     internal class SessionFileFindHelper
     {
         private readonly BackupInfo _currentBkp;
-        private readonly List<Tuple<BackupFileInfo, BackupInfo>> _prevBackupFiles;
         private readonly Dictionary<long, Dictionary<string, Tuple<BackupFileInfo, BackupInfo>>> _prevBackupFilesLookupByLengthByHash;
         private readonly Dictionary<string, Dictionary<long, Tuple<BackupFileInfo, BackupInfo>>> _prevBackupFilesLookupBypathByLength;
 
         public SessionFileFindHelper(BackupInfo currentBkp, List<Tuple<BackupFileInfo, BackupInfo>> prevBackupFiles)
         {
             _currentBkp = currentBkp;
-            _prevBackupFiles = prevBackupFiles;
 
             _prevBackupFilesLookupByLengthByHash = prevBackupFiles
                 .GroupBy(x => x.Item1.Length)
