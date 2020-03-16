@@ -59,6 +59,26 @@ namespace SharpCompress.Writers.Tar
             Write(filename, source, modificationTime, null);
         }
 
+        public void BeginAddFile(string fileName, long length)
+        {
+            TarHeader header = new TarHeader(WriterOptions.ArchiveEncoding);
+
+            header.LastModifiedTime = /*modificationTime ?? */TarHeader.EPOCH;
+            header.Name = NormalizeFilename(fileName);
+            header.Size = length;
+            header.Write(OutputStream);
+        }
+
+        public void WriteFileContent(byte[] bytes, int length)
+        {
+            OutputStream.Write(bytes, 0, length);
+        }
+
+        public void EndAddFile(long fileLength)
+        {
+            PadTo512(fileLength, false);
+        }
+
         private string NormalizeFilename(string filename)
         {
             filename = filename.Replace('\\', '/');

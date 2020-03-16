@@ -211,7 +211,7 @@ namespace Backuper
                         return files;
                     }
 
-                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.BackupRoots, backupParams.RemoteRootWin, true, helper, TargetFilesEnumerator);
+                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.BackupRoots, backupParams.RemoteRootWin, true, helper, TargetFilesEnumerator, backupParams.FastMode);
                     engine.Log += WriteLog;
                     engine.LogExt += WriteLogExt;
                     await engine.DoBackup();

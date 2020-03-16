@@ -51,5 +51,31 @@ namespace HardLinkBackup
                 return await XxHash64Callback.ComputeHash(bufferedSourceStream, chunkSize, fileLength, WriteToFile);
             }
         }
+
+        public static byte[] AddTarAndComputeHash(Stream file, string relativeFileName, TarGzHelper tar)
+        {
+            const int chunkSize = BufferSizeMib * 1024 * 1024;
+
+            {
+                var fileLength = file.Length;
+                if (fileLength == 0)
+                {
+                    return XxHash64Callback.EmptyHash;
+                }
+
+                tar.BeginAddFile(relativeFileName, fileLength);
+
+                Task WriteToFile(byte[] bytes, int length)
+                {
+                    tar.WriteFileContent(bytes, length);
+                    return Task.CompletedTask;
+                }
+
+                var hash = XxHash64Callback.ComputeHash(file, chunkSize, fileLength, WriteToFile).GetAwaiter().GetResult();
+                tar.EndAddFile(fileLength);
+
+                return hash;
+            }
+        }
     }
 }

@@ -107,7 +107,22 @@ namespace HardLinkBackup
         {
             _tarContainer.Value.Write(fileName, file, null);
         }
-        
+
+        public void BeginAddFile(string fileName, long length)
+        {
+            _tarContainer.Value.BeginAddFile(fileName, length);
+        }
+
+        public void WriteFileContent(byte[] bytes, int length)
+        {
+            _tarContainer.Value.WriteFileContent(bytes, length);
+        }
+
+        public void EndAddFile(long fileLength)
+        {
+            _tarContainer.Value.EndAddFile(fileLength);
+        }
+
         public void AddEmptyFolder(string folderName)
         {
             _tarContainer.Value.WriteEmptyFolder(folderName);
