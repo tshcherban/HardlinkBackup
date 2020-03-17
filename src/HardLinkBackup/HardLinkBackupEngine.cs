@@ -166,6 +166,30 @@ namespace HardLinkBackup
             return newOrChangedFiles;
         }
 
+        private void DetectChangesFast(IReadOnlyList<BackupFileModel> localFiles, List<Tuple<BackupFileInfo, BackupInfo>> prevBackupFiles, out List<BackupFileModel> changed, out List<BackupFileModel> unchanged)
+        {
+            changed = new List<BackupFileModel>(localFiles.Count);
+            unchanged = new List<BackupFileModel>(localFiles.Count);
+
+            var byPathLookup = prevBackupFiles.ToDictionary(x => x.Item1.Path.TrimStart('\\'));
+
+            foreach (var localFile in localFiles)
+            {
+                if (byPathLookup.TryGetValue(localFile.RelativePathWin, out var backupFile))
+                {
+                    if (backupFile.Item1.Length == localFile.FileInfo.FileInfo.Length &&
+                        Math.Abs((backupFile.Item1.Created - localFile.FileInfo.FileInfo.CreationTime).TotalSeconds) < 1 &&
+                        Math.Abs((backupFile.Item1.Modified - localFile.FileInfo.FileInfo.LastWriteTime).TotalSeconds) < 1)
+                    {
+                        unchanged.Add(localFile);
+                        continue;
+                    }
+                }
+
+                changed.Add(localFile);
+            }
+        }
+
         public async Task DoFastBackup(BackupInfo lastFastBackup, BackupInfo currentBkp, List<BackupFileModel> localFiles)
         {
             var prevBackupFiles = GetFilesFromPrevBackups(new []{lastFastBackup});
@@ -186,11 +210,9 @@ namespace HardLinkBackup
 
             var processed = 0;
 
-            foreach (var fl in localFiles)
-            {
-                var backupFile = prevBackupFiles.FirstOrDefault(x => x.Item1.Path == fl.RelativePathUnix);
-            }
-
+            DetectChangesFast(localFiles, prevBackupFiles, out var changed, out var unchanged);
+            if (changed.Count == 0)
+                return;
 
             CreateDirectories(localFiles, directoriesTarPath, ref _category);
 

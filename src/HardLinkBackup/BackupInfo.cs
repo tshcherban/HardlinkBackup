@@ -10,7 +10,7 @@ namespace HardLinkBackup
     {
         private const string BackupInfoDir = ".bkp";
         private const string BackupInfoFile = "info.txt";
-        private const string DateSerializationFormat = "yyyy-MM-dd_HH:mm:ss";
+        private const string DateSerializationFormat = "yyyy.MM.dd HH:mm:ss";
 
         private readonly Dictionary<long, Dictionary<string, BackupFileInfo>> _filesLookup;
         private readonly List<BackupFileInfo> _files = new List<BackupFileInfo>();
@@ -150,11 +150,11 @@ namespace HardLinkBackup
                     file.Write('|');
                     file.Write(o.Hash);
                     file.Write('|');
-                    file.WriteLine(o.Length);
+                    file.Write(o.Length);
                     file.Write('|');
-                    file.Write(o.Created);
+                    file.Write(o.Created.ToString(DateSerializationFormat));
                     file.Write('|');
-                    file.Write(o.Modified);
+                    file.WriteLine(o.Modified.ToString(DateSerializationFormat));
                 }
             }
         }

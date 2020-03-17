@@ -14,7 +14,7 @@ namespace HardLinkBackup
 
         public static async Task<byte[]> CopyUnbufferedAndComputeHashAsyncXX(string filePath, string destinationPath, Action<double> progressCallback, bool allowSimultaneousIo)
         {
-            const FileOptions fileFlagNoBuffering = (FileOptions)0x20000000;
+            const FileOptions fileFlagNoBuffering = (FileOptions) 0x20000000;
             const FileOptions fileOptions = fileFlagNoBuffering | FileOptions.SequentialScan;
 
             const int chunkSize = BufferSizeMib * 1024 * 1024;
@@ -56,26 +56,23 @@ namespace HardLinkBackup
         {
             const int chunkSize = BufferSizeMib * 1024 * 1024;
 
+            var fileLength = file.Length;
+
+            tar.BeginAddFile(relativeFileName, fileLength);
+
+            Task WriteToFile(byte[] bytes, int length)
             {
-                var fileLength = file.Length;
-                if (fileLength == 0)
-                {
-                    return XxHash64Callback.EmptyHash;
-                }
-
-                tar.BeginAddFile(relativeFileName, fileLength);
-
-                Task WriteToFile(byte[] bytes, int length)
-                {
-                    tar.WriteFileContent(bytes, length);
-                    return Task.CompletedTask;
-                }
-
-                var hash = XxHash64Callback.ComputeHash(file, chunkSize, fileLength, WriteToFile).GetAwaiter().GetResult();
-                tar.EndAddFile(fileLength);
-
-                return hash;
+                tar.WriteFileContent(bytes, length);
+                return Task.CompletedTask;
             }
+
+            var hash = fileLength == 0
+                ? XxHash64Callback.EmptyHash
+                : XxHash64Callback.ComputeHash(file, chunkSize, fileLength, WriteToFile).GetAwaiter().GetResult();
+
+            tar.EndAddFile(fileLength);
+
+            return hash;
         }
     }
 }
