@@ -51,26 +51,22 @@ namespace HardLinkBackup
             return existingFile;
         }
 
-        public string FindByLengthAndRelativePath(FileInfoEx fInfoEx)
+        public (string path, string hash) FindByLengthAndRelativePath(BackupFileModel bfm)
         {
-            var fileFromPrevBackup = _prevBackupFilesLookupBypathByLength.TryGetValue(fInfoEx.FileName, out var byHash)
-                ? byHash.TryGetValue(fInfoEx.FileInfo.Length, out var file)
+            var path = "\\" + bfm.RelativePathWin;
+            var fileFromPrevBackup = _prevBackupFilesLookupBypathByLength.TryGetValue(path, out var byLength)
+                ? byLength.TryGetValue(bfm.FileInfo.FileInfo.Length, out var file)
                     ? file
                     : null
                 : null;
 
-            string existingFile;
-            if (fileFromPrevBackup != null)
-                existingFile = fileFromPrevBackup.Item2.AbsolutePath + fileFromPrevBackup.Item1.Path;
-            else
-            {
-                existingFile = _currentBkp.FindFile(fInfoEx)?.Path;
+            
+            if (fileFromPrevBackup == null)
+                throw null;
 
-                if (existingFile != null)
-                    existingFile = _currentBkp.AbsolutePath + existingFile;
-            }
+            var existingFile = fileFromPrevBackup.Item2.AbsolutePath + fileFromPrevBackup.Item1.Path;
 
-            return existingFile;
+            return (existingFile, fileFromPrevBackup.Item1.Hash);
         }
     }
 

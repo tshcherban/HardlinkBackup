@@ -188,11 +188,16 @@ namespace Backuper
             {
                 using (var vssHelper = new VssHelper(new DirectoryInfo(backupParams.RootDit).Root.Name))
                 {
-                    Console.WriteLine("Creating VSS snapshot...");
+                    Console.Write("Creating VSS snapshot...");
 
                     var actualRoot = vssHelper.CreateSnapshot()
                         ? vssHelper.GetSnapshotFilePath(backupParams.RootDit)
                         : backupParams.RootDit;
+
+                    if (actualRoot== backupParams.RootDit)
+                        Console.WriteLine("FAILED");
+                    else
+                        Console.WriteLine();
 
                     string[] TargetFilesEnumerator(string backupPathWin)
                     {

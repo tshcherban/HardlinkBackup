@@ -138,34 +138,6 @@ namespace HardLinkBackup
             return files;
         }
 
-        List<BackupFileModel> DetectChanges(List<BackupFileModel> localFiles, Dictionary<long, List<Tuple<BackupFileInfo, BackupInfo>>> byLengthLocal)
-        {
-            if (byLengthLocal.Count == 0)
-            {
-                var ret = localFiles.ToList();
-                localFiles.Clear();
-                return ret;
-            }
-
-
-            var newOrChangedFiles = new List<BackupFileModel>();
-            for (var index = localFiles.Count - 1; index >= 0; index--)
-            {
-                var localFile = localFiles[index];
-                if (!byLengthLocal.TryGetValue(localFile.FileInfo.FileInfo.Length, out var byHash))
-                {
-                    newOrChangedFiles.Add(localFile);
-                    localFiles.RemoveAt(index);
-                }
-                else
-                {
-                    
-                }
-            }
-
-            return newOrChangedFiles;
-        }
-
         private void DetectChangesFast(IReadOnlyList<BackupFileModel> localFiles, List<Tuple<BackupFileInfo, BackupInfo>> prevBackupFiles, out List<BackupFileModel> changed, out List<BackupFileModel> unchanged)
         {
             changed = new List<BackupFileModel>(localFiles.Count);
@@ -190,13 +162,26 @@ namespace HardLinkBackup
             }
         }
 
-        public async Task DoFastBackup(BackupInfo lastFastBackup, BackupInfo currentBkp, List<BackupFileModel> localFiles)
+        private void DoFastBackup(BackupInfo lastFastBackup, BackupInfo currentBkp, List<BackupFileModel> localFiles)
         {
-            var prevBackupFiles = GetFilesFromPrevBackups(new []{lastFastBackup});
+            var prevBackupFiles = GetFilesFromPrevBackups(new[] {lastFastBackup});
 
             var copiedCount = 0;
             var linkedCount = 0;
             var filesCount = localFiles.Count;
+
+            var findHelper = new SessionFileFindHelper(currentBkp, prevBackupFiles);
+
+            var processed = 0;
+
+            DetectChangesFast(localFiles, prevBackupFiles, out var changed, out var unchanged);
+            if (changed.Count == 0)
+            {
+                WriteLog("No changes found", ++_category);
+                return;
+            }
+
+            WriteLog("Backing up...", ++_category);
 
             var svcDir = currentBkp.CreateFolders();
             currentBkp.CreateIncompleteAttribute();
@@ -204,22 +189,67 @@ namespace HardLinkBackup
             var smallFilesTarPath = Path.Combine(svcDir, "small-files.tar.gz");
             var directoriesTarPath = Path.Combine(svcDir, "dir-tree.tar.gz");
 
-            var findHelper = new SessionFileFindHelper(currentBkp, prevBackupFiles);
-
-            WriteLog("Backing up...", ++_category);
-
-            var processed = 0;
-
-            DetectChangesFast(localFiles, prevBackupFiles, out var changed, out var unchanged);
-            if (changed.Count == 0)
-                return;
-
             CreateDirectories(localFiles, directoriesTarPath, ref _category);
 
-            var smallFiles = GetFilesForCompression(localFiles);
-            ProcessSmallFiles(smallFiles, ref _category, smallFilesTarPath, currentBkp.AbsolutePath, findHelper, filesCount, currentBkp, ref linkedCount, ref processed);
+            var smallFiles = GetFilesForCompression(changed);
+            CopySmallFiles(smallFiles, smallFilesTarPath, currentBkp.AbsolutePath, findHelper, filesCount, currentBkp, ref linkedCount, ref processed);
 
-            foreach (var localFileInfo in localFiles)
+            foreach (var localFileInfo in changed)
+            {
+                try
+                {
+                    var processedLocal = Interlocked.Increment(ref processed);
+
+                    var newFile = Path.Combine(currentBkp.AbsolutePath, localFileInfo.RelativePathWin);
+                    var newFileRelativeName = newFile.Replace(currentBkp.AbsolutePath, string.Empty);
+
+                    var newDir = Path.GetDirectoryName(newFile);
+                    if (newDir == null)
+                    {
+                        throw new InvalidOperationException("Cannot get file's directory");
+                    }
+
+                    void ProgressCallback(double progress)
+                    {
+                        WriteLogExt($"{progress:F2} %");
+                    }
+
+                    WriteLog($"[{processedLocal} of {filesCount}] {localFileInfo.RelativePathWin} ", Interlocked.Increment(ref _category));
+                    var copiedHash = HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(localFileInfo.FileInfo.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite).Result;
+
+                    if (localFileInfo.FileInfo.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
+                    {
+                        copiedCount++;
+                    }
+                    else
+                    {
+                        WriteLog($"{localFileInfo.RelativePathWin} copy failed", Interlocked.Increment(ref _category));
+                        System.Diagnostics.Debugger.Break();
+                    }
+
+                    new FileInfo(newFile).Attributes |= FileAttributes.ReadOnly;
+
+                    var o = new BackupFileInfo
+                    {
+                        Path = newFileRelativeName,
+                        Hash = localFileInfo.FileInfo.FastHashStr,
+                        Length = localFileInfo.FileInfo.FileInfo.Length,
+                        IsLink = false,
+                        Modified = localFileInfo.FileInfo.FileInfo.LastWriteTime,
+                        Created = localFileInfo.FileInfo.FileInfo.CreationTime,
+                    };
+
+                    currentBkp.AddFile(o);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(e);
+                    Console.WriteLine();
+                }
+            }
+
+            foreach (var localFileInfo in unchanged)
             {
                 try
                 {
@@ -235,45 +265,22 @@ namespace HardLinkBackup
                     }
 
                     if (!Directory.Exists(newDir))
-                        Directory.CreateDirectory(newDir);
-
-                    var existingFile = findHelper.FindByLengthAndHash(localFileInfo.FileInfo);
-
-                    if (existingFile != null)
                     {
-                        WriteLog($"[{processedLocal} of {filesCount}] {{link}} {localFileInfo.RelativePathWin} ", Interlocked.Increment(ref _category));
-                        _hardLinkHelper.AddHardLinkToQueue(existingFile, newFile);
-                        linkedCount++;
+                        System.Diagnostics.Debugger.Break();
+                        throw null;
                     }
-                    else
-                    {
-                        void ProgressCallback(double progress)
-                        {
-                            WriteLogExt($"{progress:F2} %");
-                        }
 
-                        WriteLog($"[{processedLocal} of {filesCount}] {localFileInfo.RelativePathWin} ", Interlocked.Increment(ref _category));
-                        var copiedHash = HashSumHelper.CopyUnbufferedAndComputeHashAsyncXX(localFileInfo.FileInfo.FileName, newFile, ProgressCallback, _allowSimultaneousReadWrite).Result;
-
-                        if (localFileInfo.FileInfo.FastHashStr == string.Concat(copiedHash.Select(b => $"{b:X}")))
-                        {
-                            copiedCount++;
-                        }
-                        else
-                        {
-                            WriteLog($"{localFileInfo.RelativePathWin} copy failed", Interlocked.Increment(ref _category));
-                            System.Diagnostics.Debugger.Break();
-                        }
-
-                        new FileInfo(newFile).Attributes |= FileAttributes.ReadOnly;
-                    }
+                    var existingFile = findHelper.FindByLengthAndRelativePath(localFileInfo);
+                    WriteLog($"[{processedLocal} of {filesCount}] {{link}} {localFileInfo.RelativePathWin} ", Interlocked.Increment(ref _category));
+                    _hardLinkHelper.AddHardLinkToQueue(existingFile.path, newFile);
+                    linkedCount++;
 
                     var o = new BackupFileInfo
                     {
                         Path = newFileRelativeName,
-                        Hash = localFileInfo.FileInfo.FastHashStr,
+                        Hash = existingFile.hash,
                         Length = localFileInfo.FileInfo.FileInfo.Length,
-                        IsLink = existingFile != null,
+                        IsLink = true,
                         Modified = localFileInfo.FileInfo.FileInfo.LastWriteTime,
                         Created = localFileInfo.FileInfo.FileInfo.CreationTime,
                     };
@@ -289,32 +296,9 @@ namespace HardLinkBackup
             }
 
             WriteLog("Writing hardlinks to target", Interlocked.Increment(ref _category));
-
-            try
-            {
-                _hardLinkHelper.CreateHardLinks();
-            }
-            finally
-            {
-                currentBkp.WriteToDisk();
-                currentBkp.DeleteIncompleteAttribute();
-            }
-
-            var log = "Backup done.";
-            if (copiedCount > 0)
-            {
-                log += $" {copiedCount} files copied";
-            }
-
-            if (linkedCount > 0)
-            {
-                log += $" {linkedCount} files linked";
-            }
-
-            WriteLog(log, ++_category);
         }
 
-        private async Task DoFullBackup(BackupInfo currentBkp, List<BackupInfo> prevBkps, List<BackupFileModel> localFiles)
+        private void DoFullBackup(BackupInfo currentBkp, List<BackupInfo> prevBkps, List<BackupFileModel> localFiles)
         {
             WriteLog($"Found {prevBkps.Count} backups", ++_category);
 
@@ -339,7 +323,7 @@ namespace HardLinkBackup
             Dictionary<long, List<Tuple<BackupFileInfo, BackupInfo>>> byLength = prevBackupFiles
                 .GroupBy(x => x.Item1.Length)
                 .ToDictionary(x => x.Key, x => x.ToList());
-            
+
 
             CreateDirectories(localFiles, directoriesTarPath, ref _category);
 
@@ -453,25 +437,28 @@ namespace HardLinkBackup
                     return;
                 }
 
-                await DoFastBackup(lastFastBackup, currentBkp, localFiles);
+                DoFastBackup(lastFastBackup, currentBkp, localFiles);
             }
             else
             {
-                await DoFullBackup(currentBkp, prevBkps, localFiles);
+                DoFullBackup(currentBkp, prevBkps, localFiles);
             }
-
-            
-
-            WriteLog("Writing hardlinks to target", Interlocked.Increment(ref _category));
 
             try
             {
-                _hardLinkHelper.CreateHardLinks();
+                if (_hardLinkHelper.HasItemsToProcess)
+                {
+                    WriteLog("Writing hardlinks to target", Interlocked.Increment(ref _category));
+                    _hardLinkHelper.CreateHardLinks();
+                }
             }
             finally
             {
-                currentBkp.WriteToDisk();
-                currentBkp.DeleteIncompleteAttribute();
+                if (currentBkp.Files.Count > 0)
+                {
+                    currentBkp.WriteToDisk();
+                    currentBkp.DeleteIncompleteAttribute();
+                }
             }
 
             var log = "Backup done.";
@@ -583,7 +570,7 @@ namespace HardLinkBackup
                     }
                 })
                 .Count(x => x.StartsWith("invalid hash"));
-            
+
             if (cnt > 0)
                 WriteLog($"Found {cnt} invalid records", ++_category);
 
@@ -615,7 +602,7 @@ namespace HardLinkBackup
                         else
                         {
                             var relFileName = file.RelativePathUnix;
-                            
+
                             using (var fl = file.FileInfo.FileInfo.OpenRead())
                             {
                                 var hash = HashSumHelper.AddTarAndComputeHash(fl, relFileName, tar);
@@ -632,6 +619,81 @@ namespace HardLinkBackup
                             Hash = file.FileInfo.FastHashStr,
                             Length = file.FileInfo.FileInfo.Length,
                             IsLink = existingFileWin != null,
+                            Created = file.FileInfo.FileInfo.CreationTime,
+                            Modified = file.FileInfo.FileInfo.LastWriteTime,
+                        };
+                        currentBkp.AddFile(o);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                    }
+                }
+
+                created = tar.IsArchiveCreated;
+            }
+
+            sw.Stop();
+
+            if (created)
+            {
+                var tarAndSendDuration = sw.Elapsed;
+
+                WriteLog("Unpacking small files", Interlocked.Increment(ref _category));
+
+                sw = System.Diagnostics.Stopwatch.StartNew();
+
+                File.Move(tmpTarPath, smallFilesTarPath);
+                _hardLinkHelper.UnpackTar(smallFilesTarPath);
+
+                sw.Stop();
+
+                WriteLog($"{archivedCount} files archived and transferred in {tarAndSendDuration:g} and unpacked in {sw.Elapsed:g}", ++_category);
+            }
+        }
+
+        private void CopySmallFiles(List<BackupFileModel> smallFiles, string smallFilesTarPath, string currentBkpDir, SessionFileFindHelper findHelper, int filesCount, BackupInfo currentBkp, ref int linkedCount, ref int processed)
+        {
+            if (smallFiles.Count == 0)
+                return;
+
+            WriteLog("Small files hash calculation...", ++_category);
+
+            WriteLog($"{smallFiles.Count} files will be transferred in a batch as tar.gz", ++_category);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            bool created;
+            var tmpTarPath = smallFilesTarPath + ".tmp";
+            var archivedCount = 0;
+            using (var tar = new TarGzHelper(tmpTarPath))
+            {
+                foreach (var file in smallFiles)
+                {
+                    try
+                    {
+                        var processedLocal = Interlocked.Increment(ref processed);
+
+                        var newFileWin = Path.Combine(currentBkpDir, file.RelativePathWin);
+                        var newFileRelativeName = newFileWin.Replace(currentBkpDir, string.Empty);
+
+                        var relFileName = file.RelativePathUnix;
+
+                        using (var fl = file.FileInfo.FileInfo.OpenRead())
+                        {
+                            var hash = HashSumHelper.AddTarAndComputeHash(fl, relFileName, tar);
+                            file.FileInfo.FastHash = hash;
+                            ++archivedCount;
+                        }
+
+                        WriteLog($"[{processedLocal} of {filesCount}] {{tar}} {newFileRelativeName} ", Interlocked.Increment(ref _category));
+
+                        var o = new BackupFileInfo
+                        {
+                            Path = newFileRelativeName,
+                            Hash = file.FileInfo.FastHashStr,
+                            Length = file.FileInfo.FileInfo.Length,
+                            IsLink = false,
                             Created = file.FileInfo.FileInfo.CreationTime,
                             Modified = file.FileInfo.FileInfo.LastWriteTime,
                         };
@@ -718,6 +780,7 @@ namespace HardLinkBackup
                 throw new InvalidOperationException("Destination directory does not exist");
             }
         }
+
         /*
         private static void CreatePar(string file, BackupInfo currentBkp)
         {
