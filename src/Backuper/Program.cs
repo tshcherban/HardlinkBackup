@@ -2,6 +2,7 @@
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Threading.Tasks;
 using HardLinkBackup;
 using Renci.SshNet;
@@ -188,11 +189,16 @@ namespace Backuper
             {
                 using (var vssHelper = new VssHelper(new DirectoryInfo(backupParams.RootDit).Root.Name))
                 {
-                    Console.WriteLine("Creating VSS snapshot...");
+                    Console.Write("Creating VSS snapshot...");
 
                     var actualRoot = vssHelper.CreateSnapshot()
                         ? vssHelper.GetSnapshotFilePath(backupParams.RootDit)
                         : backupParams.RootDit;
+
+                    if (actualRoot== backupParams.RootDit)
+                        Console.WriteLine("FAILED");
+                    else
+                        Console.WriteLine();
 
                     string[] TargetFilesEnumerator(string backupPathWin)
                     {
@@ -211,10 +217,9 @@ namespace Backuper
                         return files;
                     }
 
-                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.BackupRoots, backupParams.RemoteRootWin, true, helper, TargetFilesEnumerator);
+                    var engine = new HardLinkBackupEngine(actualRoot, backupParams.Sources, backupParams.BackupRoots, backupParams.RemoteRootWin, true, helper, TargetFilesEnumerator, backupParams.FastMode);
                     engine.Log += WriteLog;
-                    engine.LogExt += WriteLogExt;
-                    await engine.DoBackup();
+                    await engine.DoBackup(_logBuilder);
                 }
 
                 sw.Stop();
@@ -235,20 +240,12 @@ namespace Backuper
             }
         }
 
-        private static void WriteLogExt(string msg)
-        {
-            var left = Console.CursorLeft;
-
-            Console.Write("".PadRight(Console.BufferWidth - 1 - left));
-            Console.CursorLeft = left;
-
-            Console.Write(msg);
-
-            Console.CursorLeft = left;
-        }
+        static StringBuilder _logBuilder = new StringBuilder();
 
         private static void WriteLog(string msg, int category)
         {
+            _logBuilder.AppendLine(msg);
+
             Console.CursorLeft = 0;
             Console.Write("".PadRight(Console.BufferWidth - 1));
             Console.CursorLeft = 0;

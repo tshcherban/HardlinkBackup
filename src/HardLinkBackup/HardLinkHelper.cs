@@ -13,6 +13,7 @@ namespace HardLinkBackup
         void CreateHardLinks();
         void AddHardLinkToQueue(string source, string target);
         void UnpackTar(string tarFilePath);
+        bool HasItemsToProcess { get; }
     }
 
     public class WinHardLinkHelper : IHardLinkHelper
@@ -35,6 +36,11 @@ namespace HardLinkBackup
         public void UnpackTar(string tarFilePath)
         {
             throw new NotImplementedException();
+        }
+
+        public bool HasItemsToProcess
+        {
+            get { return false; }
         }
 
         [DllImport("Kernel32.dll", CharSet = CharSet.Unicode)]
@@ -89,6 +95,11 @@ namespace HardLinkBackup
             File.Delete(tarFilePath);
         }
 
+        public bool HasItemsToProcess
+        {
+            get { return _linkQueue.Count > 0; }
+        }
+
         public void CreateHardLinks()
         {
             const int commandSizeLimit = 30000;
@@ -97,8 +108,18 @@ namespace HardLinkBackup
 
             var linkQueue = new Queue<string>(_linkQueue);
 
+            int cnt = _linkQueue.Count;
+            var prevProgress = 0.0d;
+
             while (linkQueue.Count > 0)
             {
+                var progress = 100d / cnt * (cnt - linkQueue.Count);
+                if (progress - prevProgress > 1)
+                {
+                    prevProgress = progress;
+                    Console.WriteLine($"{progress:F1}%");
+                }
+
                 cmdBuilder.Clear();
 
                 string linkCommand;

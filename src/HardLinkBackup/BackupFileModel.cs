@@ -5,12 +5,12 @@ namespace HardLinkBackup
 {
     public class BackupFileModel
     {
-        public BackupFileModel(string fullFileName, string relativeFileName)
+        public BackupFileModel(string fullFileName, string relativeFileName, bool longPath = false)
         {
             if (string.IsNullOrEmpty(fullFileName))
                 throw new Exception("File path can not be empty");
 
-            FileInfo = new FileInfoEx(fullFileName);
+            FileInfo = new FileInfoEx(longPath? $"\\\\?\\{fullFileName}" : fullFileName);
 
             RelativePathWin = PathHelpers.NormalizePathWin(relativeFileName).TrimStart('\\', '/');
             RelativePathUnix = PathHelpers.NormalizePathUnix(relativeFileName).TrimStart('\\', '/');
