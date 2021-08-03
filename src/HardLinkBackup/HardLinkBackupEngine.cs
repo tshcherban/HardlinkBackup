@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -28,12 +29,12 @@ namespace HardLinkBackup
         private readonly bool _allowSimultaneousReadWrite;
         private readonly IHardLinkHelper _hardLinkHelper;
         private readonly Func<string, string[]> _remoteFilesEnumerator;
-        private bool _fastMode;
+        private readonly bool _fastMode;
         private int _category;
 
         public event Action<string, int> Log;
 
-        public event Action<string> LogExt;
+        //public event Action<string> LogExt;
 
         public HardLinkBackupEngine(string rootDir, string[] sources, string[] backupRoots, string destination, bool allowSimultaneousReadWrite, IHardLinkHelper hardLinkHelper, Func<string, string[]> remoteFilesEnumerator, bool fastMode)
         {
@@ -87,10 +88,7 @@ namespace HardLinkBackup
             Log?.Invoke(msg, category);
         }
 
-        private void WriteLogExt(string msg)
-        {
-            LogExt?.Invoke(msg);
-        }
+        
 
         private List<BackupFileModel> GetFilesToBackup(ref int category)
         {
@@ -107,7 +105,7 @@ namespace HardLinkBackup
                         {
                             var relativeFileName = fullFileName.Replace(src.FullPath, src.Alias);
 
-                            return new BackupFileModel(fullFileName, relativeFileName);
+                            return new BackupFileModel(fullFileName, relativeFileName, true);
                         }
                         catch (Exception e)
                         {
@@ -211,7 +209,7 @@ namespace HardLinkBackup
 
                     void ProgressCallback(double progress)
                     {
-                        WriteLogExt($"{progress:F2} %");
+                        //WriteLogExt($"{progress:F2} %");
                     }
 
                     WriteLog($"[{processedLocal} of {filesCount}] {localFileInfo.RelativePathWin} ", Interlocked.Increment(ref _category));
@@ -360,7 +358,6 @@ namespace HardLinkBackup
                     {
                         void ProgressCallback(double progress)
                         {
-                            WriteLogExt($"{progress:F2} %");
                         }
 
                         WriteLog($"[{processedLocal} of {filesCount}] {localFileInfo.RelativePathWin} ", Interlocked.Increment(ref _category));
@@ -400,7 +397,7 @@ namespace HardLinkBackup
             }
         }
 
-        public async Task DoBackup()
+        public async Task DoBackup(StringBuilder logBuilder)
         {
             await Task.Yield();
 
@@ -458,6 +455,7 @@ namespace HardLinkBackup
                 {
                     currentBkp.WriteToDisk();
                     currentBkp.DeleteIncompleteAttribute();
+                    File.WriteAllText(Path.Combine(currentBkpDir, ".bkp\\log.log"), logBuilder.ToString());
                 }
             }
 
